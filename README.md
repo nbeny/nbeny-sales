@@ -7,7 +7,7 @@ Aucune dépendance. TypeScript exécuté nativement par Node 24 — pas de build
 pas de `npm install`.
 
 ```bash
-node --test "test/*.test.ts"   # 50 tests
+node --test "test/*.test.ts"   # 60 tests
 node src/cli.ts help
 node src/cli.ts opportunity:list --min-score 85 --min-coverage 6 --details
 ```
