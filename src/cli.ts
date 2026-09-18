@@ -27,7 +27,7 @@ import { nextId } from './lib/ids.ts'
 import { fingerprint, findDuplicate, type DedupRow } from './lib/dedup.ts'
 import { transition, canTransition } from './lib/pipeline.ts'
 import { computeMatch, type KeywordsConfig, type LocationsConfig, type ScoringConfig, type ScoringContext } from './lib/scoring.ts'
-import { assertValidOpportunity, assertValidOutreach, lintOutreachBody, ValidationError } from './lib/validate.ts'
+import { assertValidOpportunity, assertValidOutreach, lintOutreachBody, validateOpportunityInput, ValidationError } from './lib/validate.ts'
 import { buildDailyReport } from './lib/report.ts'
 import type { Followup, FollowupStatus, Opportunity, OutreachMessage, Profile, StageName } from './lib/types.ts'
 
@@ -129,6 +129,72 @@ function opportunityAdd(): void {
 
   console.log(opp.id + ' créée — ' + opp.match.score + '/100 (couverture ' + opp.match.coverage + '/8, ' + opp.match.priority + ')')
   for (const w of opp.match.weaknesses) console.log('  ⚠️  ' + w)
+}
+
+/**
+ * Import en lot. Chaque entrée passe exactement par les mêmes contrôles qu'un
+ * ajout unitaire : une entrée refusée n'interrompt pas les autres, et le
+ * rapport de fin dit précisément ce qui est passé, ce qui a doublonné et ce qui
+ * a été rejeté — sinon un import massif devient une boîte noire.
+ */
+function opportunityImport(): void {
+  const rows = payload() as unknown
+  if (!Array.isArray(rows)) throw new Error('Attendu : un tableau JSON d\'opportunités.')
+
+  const added: string[] = []
+  const duplicates: string[] = []
+  const rejected: { label: string; issues: string[] }[] = []
+
+  for (const input of rows as Record<string, unknown>[]) {
+    const label = String(input.company ?? '?') + ' — ' + String(input.title ?? '?')
+    const issues = validateOpportunityInput(input)
+    if (issues.length) { rejected.push({ label, issues }); continue }
+
+    const existing = readCollection<Opportunity>('opportunities')
+    const candidate = { company: String(input.company), title: String(input.title), sourceUrl: String(input.sourceUrl) }
+    const threshold = readConfig<ScoringConfig>('scoring').rules.duplicateSimilarityThreshold
+    const dup = findDuplicate(candidate, dedupRows(existing), threshold)
+    if (dup.duplicate) { duplicates.push(label + '  (= ' + dup.matchedId + ')'); continue }
+
+    const now = new Date().toISOString()
+    const opp: Opportunity = {
+      id: nextId('opportunity', existing.map((r) => r.id)),
+      title: candidate.title,
+      company: candidate.company,
+      sourceUrl: candidate.sourceUrl,
+      sourceName: String(input.sourceName),
+      discoveredAt: now,
+      stage: 'MATCHED',
+      facts: (input.facts ?? {}) as Opportunity['facts'],
+      assumptions: (input.assumptions ?? []) as Opportunity['assumptions'],
+      fingerprint: fingerprint(candidate.company, candidate.title),
+      history: [
+        { at: now, from: null, to: 'DISCOVERED' },
+        { at: now, from: 'DISCOVERED', to: 'MATCHED', note: 'Import en lot avec scoring automatique.' },
+      ],
+      notes: typeof input.notes === 'string' ? input.notes : undefined,
+    }
+    opp.match = computeMatch(opp, scoringContext())
+    existing.push(opp)
+    writeCollection('opportunities', existing)
+    added.push(opp.id + '  ' + opp.match.priority.padEnd(6) + ' ' + String(opp.match.score).padStart(3) + '/100 (' + opp.match.coverage + '/8)  ' + label)
+  }
+
+  appendHistory({ event: 'opportunity:import', added: added.length, duplicates: duplicates.length, rejected: rejected.length })
+
+  for (const line of added) console.log(line)
+  if (duplicates.length) {
+    console.log('\nDoublons écartés (' + duplicates.length + ') :')
+    for (const d of duplicates) console.log('  ' + d)
+  }
+  if (rejected.length) {
+    console.log('\nRefusées (' + rejected.length + ') :')
+    for (const r of rejected) {
+      console.log('  ' + r.label)
+      for (const i of r.issues) console.log('    - ' + i)
+    }
+  }
+  console.log('\n' + added.length + ' ajoutée(s), ' + duplicates.length + ' doublon(s), ' + rejected.length + ' refusée(s).')
 }
 
 function opportunityList(): void {
@@ -378,6 +444,7 @@ function help(): void {
 
 Opportunités
   opportunity:add --file <json>       Ajoute après validation + déduplication + scoring
+  opportunity:import --file <json>    Import en lot (tableau JSON), une entrée refusée n'arrête pas les autres
   opportunity:list [--priority HIGH] [--stage X] [--contract freelance] [--limit N]
   opportunity:show <id>
   opportunity:stage <id> <STAGE> [--note "..."]
@@ -409,6 +476,7 @@ Le JSON peut aussi arriver sur stdin, ou via --json '<...>'.`)
 
 const COMMANDS: Record<string, () => void> = {
   'opportunity:add': opportunityAdd,
+  'opportunity:import': opportunityImport,
   'opportunity:list': opportunityList,
   'opportunity:show': opportunityShow,
   'opportunity:stage': opportunityStage,

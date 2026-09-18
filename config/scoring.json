@@ -21,6 +21,6 @@
     "maxOnsiteDaysDefault": 3,
     "$comment2": "En dessous de ce recouvrement de stack, la dimension TECHNOLOGY est marquée comme point faible.",
     "technologyWeakBelow": 0.4,
-    "duplicateSimilarityThreshold": 0.7
+    "duplicateSimilarityThreshold": 0.8
   }
 }

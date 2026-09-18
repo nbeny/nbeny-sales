@@ -63,6 +63,25 @@ describe('déduplication', () => {
     assert.equal(findDuplicate({ company: 'B', title: 'Y', sourceUrl: url }, existing).duplicate, true)
   })
 
+  test('deux missions distinctes chez la même entreprise ne fusionnent pas', () => {
+    // Cas réel observé le 18/09/2026 : Naxo publie deux annonces le même mois,
+    // identiques au mot près sauf la techno qui les distingue. Un seul jeton
+    // d'écart ne doit pas les faire compter pour une.
+    const existing = [{
+      id: 'OPP-2026-0002',
+      company: 'Naxo',
+      title: 'Développeur Senior Fullstack Typescript React Nestjs',
+      sourceUrl: 'https://www.hellowork.com/fr-fr/emplois/82680838.html',
+      fingerprint: fingerprint('Naxo', 'Développeur Senior Fullstack Typescript React Nestjs'),
+    }]
+    const found = findDuplicate(
+      { company: 'Naxo', title: 'Développeur Full Stack TypeScript React PostgreSQL', sourceUrl: 'https://www.hellowork.com/fr-fr/emplois/82755047.html' },
+      existing,
+      0.8,
+    )
+    assert.equal(found.duplicate, false)
+  })
+
   test('une entreprise différente n\'est jamais un doublon', () => {
     const existing = [{
       id: 'OPP-2026-0001',
