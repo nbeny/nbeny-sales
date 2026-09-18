@@ -1,0 +1,111 @@
+{
+  "$comment": "Base de départ : Wimereux (62930). `travelMinutes` = trajet aller estimé depuis Wimereux, utilisé pour juger si un rythme hybride est tenable. `maxOnsiteDays` = nombre de jours sur site par semaine au-delà duquel l'opportunité est dégradée.",
+  "home": { "city": "Wimereux", "postalCode": "62930", "country": "FR" },
+  "places": [
+    {
+      "key": "wimereux",
+      "labels": ["wimereux"],
+      "market": "fr-hdf",
+      "priority": 1,
+      "travelMinutes": 0,
+      "maxOnsiteDays": 5
+    },
+    {
+      "key": "boulogne",
+      "labels": ["boulogne-sur-mer", "boulogne sur mer", "boulogne"],
+      "market": "fr-hdf",
+      "priority": 1,
+      "travelMinutes": 15,
+      "maxOnsiteDays": 5
+    },
+    {
+      "key": "calais",
+      "labels": ["calais"],
+      "market": "fr-hdf",
+      "priority": 2,
+      "travelMinutes": 45,
+      "maxOnsiteDays": 5
+    },
+    {
+      "key": "hauts-de-france",
+      "labels": ["hauts-de-france", "hauts de france", "pas-de-calais", "nord", "arras", "dunkerque", "amiens", "lens", "douai", "valenciennes"],
+      "market": "fr-hdf",
+      "priority": 3,
+      "travelMinutes": 90,
+      "maxOnsiteDays": 3
+    },
+    {
+      "key": "lille",
+      "labels": ["lille", "villeneuve-d'ascq", "villeneuve d'ascq", "roubaix", "tourcoing", "marcq-en-baroeul", "euratechnologies"],
+      "market": "fr-hdf",
+      "priority": 4,
+      "travelMinutes": 105,
+      "maxOnsiteDays": 3,
+      "note": "Hybride accepté : 1 à 3 jours sur site maximum. 1h45 de trajet aller."
+    },
+    {
+      "key": "paris",
+      "labels": ["paris", "ile-de-france", "île-de-france", "idf", "boulogne-billancourt", "la defense", "la défense", "levallois", "issy-les-moulineaux", "saint-denis", "montreuil"],
+      "market": "fr-paris",
+      "priority": 5,
+      "travelMinutes": 180,
+      "maxOnsiteDays": 2,
+      "note": "Remote ou hybride léger. Déplacements ponctuels acceptables. Une mission à 5 jours sur site est signalée comme exception à examiner à part, pas écartée en silence."
+    },
+    {
+      "key": "france-other",
+      "labels": ["france", "lyon", "bordeaux", "nantes", "toulouse", "marseille", "rennes", "strasbourg", "montpellier", "nice"],
+      "market": "fr-other",
+      "priority": 6,
+      "travelMinutes": 300,
+      "maxOnsiteDays": 0,
+      "note": "Uniquement en remote complet."
+    },
+    {
+      "key": "suisse",
+      "labels": ["suisse", "switzerland", "geneve", "genève", "geneva", "lausanne", "zurich", "zürich", "bale", "bâle", "basel"],
+      "market": "ch",
+      "priority": 7,
+      "travelMinutes": 420,
+      "maxOnsiteDays": 0,
+      "note": "Remote, ou mobilité à examiner explicitement."
+    },
+    {
+      "key": "canada",
+      "labels": ["canada", "montreal", "montréal", "toronto", "vancouver", "quebec", "québec"],
+      "market": "ca",
+      "priority": 8,
+      "travelMinutes": 600,
+      "maxOnsiteDays": 0,
+      "note": "Remote, ou mobilité internationale à examiner explicitement."
+    },
+    {
+      "key": "usa",
+      "labels": ["usa", "united states", "etats-unis", "états-unis", "new york", "san francisco", "austin", "boston", "seattle", "remote us"],
+      "market": "us",
+      "priority": 9,
+      "travelMinutes": 600,
+      "maxOnsiteDays": 0,
+      "note": "Remote, ou mobilité internationale à examiner explicitement. Vérifier l'éligibilité au travail."
+    },
+    {
+      "key": "singapour",
+      "labels": ["singapour", "singapore"],
+      "market": "sg",
+      "priority": 10,
+      "travelMinutes": 900,
+      "maxOnsiteDays": 0
+    },
+    {
+      "key": "hongkong",
+      "labels": ["hong kong", "hongkong"],
+      "market": "hk",
+      "priority": 11,
+      "travelMinutes": 900,
+      "maxOnsiteDays": 0
+    }
+  ],
+  "remoteLabels": ["remote", "télétravail", "teletravail", "full remote", "100% remote", "distanciel", "work from home", "wfh", "anywhere"],
+  "hybridLabels": ["hybride", "hybrid", "partiel", "2 jours", "3 jours", "flex office"],
+  "onsiteLabels": ["sur site", "présentiel", "presentiel", "on-site", "onsite", "no remote", "sans télétravail"]
+}

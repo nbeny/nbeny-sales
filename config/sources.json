@@ -1,0 +1,34 @@
+{
+  "$comment": "Sources autorisées. Règle absolue : consultation publique uniquement, via WebSearch et WebFetch. Aucun contournement de CAPTCHA, de mur d'authentification ou de protection anti-bot. Aucune extraction automatisée en masse d'une plateforme dont les CGU l'interdisent.",
+  "allowed": [
+    { "name": "France Travail", "url": "https://candidat.francetravail.fr", "kind": "job-board", "notes": "Annonces publiques accessibles sans compte." },
+    { "name": "APEC", "url": "https://www.apec.fr", "kind": "job-board", "notes": "Offres cadres publiques." },
+    { "name": "Welcome to the Jungle", "url": "https://www.welcometothejungle.com", "kind": "job-board", "notes": "Pages d'offres publiques." },
+    { "name": "HelloWork", "url": "https://www.hellowork.com", "kind": "job-board" },
+    { "name": "Indeed", "url": "https://fr.indeed.com", "kind": "job-board" },
+    { "name": "Malt", "url": "https://www.malt.fr", "kind": "freelance", "notes": "Consultation publique uniquement. Les missions détaillées nécessitent un compte : dans ce cas, signaler l'accès requis plutôt que de le contourner." },
+    { "name": "Freelance-info", "url": "https://www.freelance-info.fr", "kind": "freelance" },
+    { "name": "Free-Work", "url": "https://www.free-work.com", "kind": "freelance" },
+    { "name": "Comet", "url": "https://www.comet.co", "kind": "freelance" },
+    { "name": "Remotive", "url": "https://remotive.com", "kind": "remote" },
+    { "name": "WeWorkRemotely", "url": "https://weworkremotely.com", "kind": "remote" },
+    { "name": "Sites carrière d'entreprise", "url": null, "kind": "company", "notes": "Source la plus fiable : l'offre à la source, sans intermédiaire." },
+    { "name": "GitHub", "url": "https://github.com", "kind": "signal", "notes": "Activité publique des entreprises, stack réelle, offres en README." },
+    { "name": "LinkedIn", "url": "https://www.linkedin.com", "kind": "network", "notes": "Pages publiques uniquement. Pas d'extraction automatisée, pas de scraping du moteur de recherche : les CGU l'interdisent." }
+  ],
+  "forbidden": {
+    "practices": [
+      "Contourner un CAPTCHA, un Turnstile, un DataDome ou toute protection anti-bot",
+      "Utiliser un compte tiers ou des identifiants pour accéder à des données non publiques",
+      "Extraire en masse une plateforme dont les CGU l'interdisent",
+      "Collecter des données personnelles sensibles (adresse privée, téléphone personnel, situation familiale, santé, opinions)",
+      "Récupérer un email personnel non publié par la personne dans un contexte professionnel",
+      "Envoyer quoi que ce soit sans validation humaine explicite"
+    ]
+  },
+  "contactPolicy": {
+    "$comment": "Ce qu'un agent a le droit de conserver sur une personne.",
+    "allowed": ["nom", "poste", "entreprise", "URL de profil professionnel public", "email professionnel publié publiquement par l'entreprise"],
+    "forbidden": ["email personnel", "téléphone personnel", "adresse du domicile", "toute donnée de la vie privée"]
+  }
+}

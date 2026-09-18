@@ -1,0 +1,167 @@
+{
+  "_meta": {
+    "generatedBy": "PROFILE_AGENT",
+    "generatedAt": "2026-09-18",
+    "rule": "Chaque élément de ce fichier provient d'une source listée dans `sources`. Rien n'y est déduit, arrondi ou embelli. Les champs non renseignés sont listés dans `unknowns` et doivent le rester tant qu'une source ne les remplit pas.",
+    "primarySource": "https://nbeny.fr"
+  },
+  "sources": [
+    "https://nbeny.fr",
+    "https://linkedin.com/in/nbeny",
+    "https://github.com/nbeny",
+    "repo folionbeny — nbeny/i18n/dictionaries/fr.ts",
+    "repo folionbeny — nbeny/lib/portfolio-data.ts",
+    "repo folionbeny — nbeny/components/sections/Contact.tsx"
+  ],
+  "identity": {
+    "name": "Nicolas BENY",
+    "title": "Développeur Fullstack Sénior",
+    "brand": "NB Studio",
+    "location": { "city": "Wimereux", "postalCode": "62930", "country": "France" },
+    "languages": [
+      { "language": "français", "level": "natif" },
+      { "language": "anglais", "level": "C1" }
+    ],
+    "contact": {
+      "email": "contact@nbeny.fr",
+      "phone": "+33 6 74 69 63 16",
+      "website": "https://nbeny.fr",
+      "linkedin": "https://linkedin.com/in/nbeny",
+      "github": "https://github.com/nbeny",
+      "cv": "https://nbeny.fr/CV_nbeny_FR.pdf"
+    }
+  },
+  "experienceYears": 5,
+  "experienceYearsNote": "Le site affiche « 5+ ans ». Chiffre repris tel quel. La première expérience référencée démarre en décembre 2019 ; ne pas annoncer un chiffre supérieur sans que le site soit mis à jour.",
+  "roles": [
+    "Développeur Fullstack Sénior",
+    "Backend Developer",
+    "Software Engineer",
+    "Platform Engineer",
+    "DevOps Engineer"
+  ],
+  "education": [
+    { "school": "École 42 Paris", "detail": "Grande École du Numérique", "source": "https://nbeny.fr" },
+    { "school": "Formasup HDF", "detail": "Expert Architecte du Numérique", "source": "https://nbeny.fr" }
+  ],
+  "certifications": [
+    { "name": "AWS Certified Cloud Practitioner (CLF-C02)", "level": "foundational", "source": "https://nbeny.fr", "note": "Certification de niveau fondamental — ne jamais la présenter comme une certification Architect ou DevOps." },
+    { "name": "HackTheBox", "source": "https://nbeny.fr" }
+  ],
+  "experience": [
+    {
+      "company": "Phildar",
+      "role": "Senior Fullstack · E-commerce",
+      "period": "Avril 2026 – Juillet 2026",
+      "sector": "e-commerce",
+      "highlights": [
+        "Refonte de la page d'accueil de phildar.com et du CMS d'édition côté métier",
+        "Duplicateur de panier B2B / B2C",
+        "Intégration d'Algolia pour la recherche et la navigation produits",
+        "Flux e-mail de retour en stock"
+      ],
+      "source": "https://nbeny.fr"
+    },
+    {
+      "company": "PocketResult",
+      "role": "Senior Fullstack · Gouvernance & GRC",
+      "period": "Août 2024 – Juin 2025",
+      "sector": "grc",
+      "highlights": [
+        "Gestion des risques et conformité, gouvernance des accès granulaire avec SpiceDB",
+        "Gestionnaire de tâches et documents, sections configurables",
+        "Optimisation des routes et graphiques interactifs",
+        "Correction des failles issues d'un audit de sécurité OWASP"
+      ],
+      "source": "https://nbeny.fr"
+    },
+    {
+      "company": "Veson Nautical",
+      "role": "Fullstack · Maritime Tech",
+      "period": "Mai 2024 – Août 2024",
+      "sector": "saas maritime",
+      "highlights": [
+        "UX de modification des tags avant entraînement IA",
+        "Pièces jointes et partage de recherches par URL encodée",
+        "Équipe internationale US/UK"
+      ],
+      "source": "https://nbeny.fr"
+    },
+    {
+      "company": "Rushour",
+      "role": "Fullstack · Delivery Food Tech",
+      "period": "Avril 2022 – Juin 2023",
+      "sector": "food tech",
+      "highlights": [
+        "Scraper multi-plateformes sur 8 pays, géolocalisation, intégration HubSpot",
+        "Application mobile React Native",
+        "Back-office et chatbot Slack avec ChatGPT",
+        "Migration AWS SDK v2 vers v3"
+      ],
+      "source": "https://nbeny.fr"
+    },
+    {
+      "company": "Intrinsec",
+      "role": "Backend · Cybersécurité",
+      "period": "Décembre 2019 – Décembre 2021",
+      "sector": "cybersécurité",
+      "highlights": [
+        "Microservices sécurisés en FastAPI, Python et Go gRPC",
+        "Infrastructure DevOps : Terraform, Ansible, CI/CD",
+        "R&D cybersécurité (Arsenal, Nessus, Metasploit)",
+        "Tests d'intrusion et analyse de vulnérabilités"
+      ],
+      "source": "https://nbeny.fr"
+    }
+  ],
+  "projects": [
+    { "name": "UrbanConnect", "pitch": "Marketplace sociale de proximité — social, objets, services dans un graphe de confiance", "stack": ["NestJS", "Next.js", "GraphQL", "Ory Kratos", "Elasticsearch", "Kafka", "Temporal", "Stripe", "Prisma", "Redis", "MinIO", "Docker"], "url": "https://github.com/nbeny/UrbanConnct" },
+    { "name": "BotTrading", "pitch": "Plateforme event-driven de market intelligence crypto, exécution gardée avec humain dans la boucle", "stack": ["Python", "Kafka", "PostgreSQL", "Hugging Face", "WebSocket"], "url": "https://github.com/nbeny/BotTrading" },
+    { "name": "AutoScanner", "pitch": "Plateforme de pentest orchestrant ~100 outils sandboxés, chasse de vulnérabilités pilotée par IA", "stack": ["Nx", "NestJS", "Prisma", "PostgreSQL", "BullMQ", "GraphQL", "React", "Docker"], "url": "https://github.com/nbeny/AutoScanner" },
+    { "name": "AutoDevClaude", "pitch": "Orchestrateur autonome qui pilote le CLI Claude en boucle pour construire un projet", "stack": ["NestJS", "Prisma", "PostgreSQL", "Next.js", "SSE", "Docker"], "url": "https://github.com/nbeny/AutoDevClaude" },
+    { "name": "CrowdSec + WAF Coraza", "pitch": "Protection complète d'un VPS : IDS, WAF OWASP CRS, bannissement nftables", "stack": ["CrowdSec", "Coraza", "Traefik", "nftables", "Docker", "Cloudflare"], "url": "https://github.com/nbeny/Crowdsec" },
+    { "name": "SVC — Service Control", "pitch": "Agents Rust en reverse connection pilotés depuis un dashboard web", "stack": ["Rust", "Axum", "PostgreSQL", "React", "WebSocket"], "url": "https://github.com/nbeny/RAT" },
+    { "name": "HomeLab & Server Ops", "pitch": "Infrastructure personnelle : Proxmox, K3s, Ansible, monitoring", "stack": ["Proxmox", "Kubernetes", "Docker", "Ansible", "Grafana", "Prometheus"], "url": "https://github.com/nbeny" }
+  ],
+  "technologies": {
+    "core": ["TypeScript", "JavaScript", "Node.js", "NestJS", "React", "Next.js", "GraphQL", "PostgreSQL", "Docker", "Linux", "Prisma", "TypeORM"],
+    "strong": ["Python", "FastAPI", "React Native", "AWS", "Redis", "Elasticsearch", "Kafka", "MongoDB", "CI/CD", "Terraform", "Ansible", "Go", "gRPC", "Stripe", "BullMQ", "Temporal", "MinIO", "OWASP", "pentest"],
+    "familiar": ["Rust", "Axum", "Kubernetes", "K3s", "Hugging Face", "FFmpeg", "Nx", "SpiceDB", "Algolia", "Socket.io", "RabbitMQ", "Ory Kratos", "Proxmox", "Grafana", "Prometheus"],
+    "absent": ["Java", "Spring", ".NET", "C#", "PHP", "Symfony", "Laravel", "Ruby on Rails", "Angular", "Vue", "Scala", "Kotlin", "Swift", "Salesforce", "SAP"]
+  },
+  "sectors": {
+    "proven": ["e-commerce", "cybersécurité", "GRC / conformité", "SaaS B2B", "maritime", "food tech / delivery"],
+    "wanted": ["fintech", "mobilité", "transport", "IA", "robotique", "marketplace", "IoT", "industrie"]
+  },
+  "preferences": {
+    "acceptedContracts": ["freelance", "cdi"],
+    "contractWeighting": "equal",
+    "contractWeightingNote": "Décision de Nicolas, 2026-09-18 : freelance et CDI recherchés au même niveau. Aucun bonus de contrat dans le scoring.",
+    "remote": "strongly-preferred",
+    "maxOnsiteDaysByCity": { "lille": 3, "paris": 2 },
+    "internationalMobility": "ouvert — mentionné sur le site (« Ouvert à la mobilité internationale »)",
+    "availability": "Disponible pour de nouvelles missions freelance ou CDI (source : nbeny.fr). Date de démarrage précise non renseignée."
+  },
+  "compensation": {
+    "note": "Le marché des Hauts-de-France est décrit comme faible par Nicolas (2026-09-18) : une attente unique de TJM ou de salaire n'aurait pas de sens. Chaque marché a donc sa propre référence. Tant qu'un marché est `unknown`, la dimension SALARY_OR_TJM est exclue du score au lieu d'être devinée. POSITIONING_AGENT remplit ces cases à partir de montants lus dans de vraies annonces, via `profile:set-market --source <url>`.",
+    "markets": {
+      "fr-hdf": { "floor": null, "target": null, "currency": "EUR", "unit": "day", "status": "unknown", "sources": [] },
+      "fr-paris": { "floor": null, "target": null, "currency": "EUR", "unit": "day", "status": "unknown", "sources": [] },
+      "fr-other": { "floor": null, "target": null, "currency": "EUR", "unit": "day", "status": "unknown", "sources": [] },
+      "ch": { "floor": null, "target": null, "currency": "CHF", "unit": "day", "status": "unknown", "sources": [] },
+      "ca": { "floor": null, "target": null, "currency": "CAD", "unit": "year", "status": "unknown", "sources": [] },
+      "us": { "floor": null, "target": null, "currency": "USD", "unit": "year", "status": "unknown", "sources": [] },
+      "sg": { "floor": null, "target": null, "currency": "SGD", "unit": "year", "status": "unknown", "sources": [] },
+      "hk": { "floor": null, "target": null, "currency": "HKD", "unit": "year", "status": "unknown", "sources": [] }
+    }
+  },
+  "unknowns": [
+    "TJM plancher et cible, pour chacun des 8 marchés",
+    "Fourchette de salaire CDI acceptable, par marché",
+    "Date de disponibilité exacte (le site dit « disponible » sans date)",
+    "Préavis à respecter en cas de CDI",
+    "Volume hebdomadaire souhaité en freelance (2-3 j/semaine évoqué dans la demande initiale, non confirmé comme règle)",
+    "Statut juridique freelance (micro-entreprise, SASU, portage) — impacte ce qu'on peut annoncer à un client",
+    "Éligibilité au travail hors UE (Canada, USA, Singapour, Hong Kong)"
+  ]
+}

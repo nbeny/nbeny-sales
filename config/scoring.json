@@ -1,0 +1,26 @@
+{
+  "$comment": "Poids du scoring. Les dimensions UNKNOWN sont retirées du dénominateur, donc modifier un poids ne casse jamais un score déjà calculé : il suffit de relancer `match:all`.",
+  "weights": {
+    "TECH": 1.5,
+    "TECHNOLOGY": 2,
+    "LOCATION": 1.5,
+    "REMOTE": 2,
+    "CONTRACT": 1,
+    "SALARY_OR_TJM": 1.5,
+    "EXPERIENCE": 1,
+    "SECTOR": 0.5
+  },
+  "thresholds": {
+    "high": 78,
+    "medium": 58,
+    "$comment": "Une opportunité ne peut pas être HIGH si trop peu de dimensions sont connues : un score de 95 sur 3 dimensions n'est pas un score, c'est une supposition.",
+    "minCoverageForHigh": 6,
+    "minCoverageForMedium": 4
+  },
+  "rules": {
+    "maxOnsiteDaysDefault": 3,
+    "$comment2": "En dessous de ce recouvrement de stack, la dimension TECHNOLOGY est marquée comme point faible.",
+    "technologyWeakBelow": 0.4,
+    "duplicateSimilarityThreshold": 0.7
+  }
+}

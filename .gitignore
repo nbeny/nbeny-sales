@@ -1,0 +1,12 @@
+node_modules/
+*.tmp
+*.log
+
+# La base contient des informations sur des entreprises et des personnes.
+# Elle reste locale par defaut : si ce depot part un jour sur GitHub, rien ne
+# fuit. Le profil et la configuration, eux, sont versionnes.
+data/*.json
+!data/profile.json
+data/history/
+data/reports/
+.tmp/

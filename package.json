@@ -1,0 +1,14 @@
+{
+  "name": "nbeny-sales",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Equipe d'agents de prospection, matching et suivi pour le profil de Nicolas BENY",
+  "engines": { "node": ">=22.6" },
+  "scripts": {
+    "cli": "node src/cli.ts",
+    "test": "node --test \"test/*.test.ts\"",
+    "report": "node src/cli.ts report:daily",
+    "stats": "node src/cli.ts stats"
+  }
+}
