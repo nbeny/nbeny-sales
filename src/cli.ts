@@ -333,20 +333,33 @@ function profileSetMarket(): void {
   const path = join(DATA_DIR, 'profile.json')
   const profile = loadProfile()
   const source = flag('source')
-  if (!source) {
-    console.error('`--source <url>` est obligatoire : un montant de marché sans annonce à l\'appui est une estimation, pas un fait.')
+  const decision = flag('decision')
+  if (!source && !decision) {
+    console.error('Il faut dire d\'où vient le chiffre :')
+    console.error('  --decision "<texte>"  pour un plancher, qui est un arbitrage de Nicolas')
+    console.error('  --source <url>        pour une cible, qui doit venir d\'une annonce réelle')
+    process.exit(2)
+  }
+  if (flag('target') && !source) {
+    console.error('`--target` exige `--source <url>` : une cible sans annonce à l\'appui est une estimation, pas un fait.')
     process.exit(2)
   }
   const market = profile.compensation.markets[key]
   if (!market) { console.error('Marché inconnu : ' + key + '. Connus : ' + Object.keys(profile.compensation.markets).join(', ')); process.exit(1); return }
-  if (flag('floor')) market.floor = Number(flag('floor'))
+  if (flag('floor')) {
+    market.floor = Number(flag('floor'))
+    market.floorOrigin = decision ?? 'source : ' + source
+  }
   if (flag('target')) market.target = Number(flag('target'))
   if (flag('currency')) market.currency = String(flag('currency'))
   if (flag('unit')) market.unit = flag('unit') as 'day' | 'year'
   market.status = market.floor !== null ? 'known' : 'unknown'
-  market.sources = [...new Set([...market.sources, source])]
+  if (source) market.sources = [...new Set([...market.sources, source])]
   writeJson(path, profile)
-  console.log(key + ' : plancher ' + market.floor + ', cible ' + market.target + ' ' + market.currency + '/' + market.unit + ' (' + market.sources.length + ' source(s))')
+  console.log(key + ' : plancher ' + market.floor + ', cible ' + (market.target ?? 'non renseignée') + ' ' + market.currency + '/' + market.unit)
+  if (market.target === null) {
+    console.log('Sans cible, toute offre au-dessus du plancher scorera pareil. La cible se pose à partir d\'annonces réelles.')
+  }
   console.log('Relance `node src/cli.ts match:all` pour rescorer avec cette référence.')
 }
 

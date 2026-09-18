@@ -17,10 +17,20 @@
     "name": "Nicolas BENY",
     "title": "Développeur Fullstack Sénior",
     "brand": "NB Studio",
-    "location": { "city": "Wimereux", "postalCode": "62930", "country": "France" },
+    "location": {
+      "city": "Wimereux",
+      "postalCode": "62930",
+      "country": "France"
+    },
     "languages": [
-      { "language": "français", "level": "natif" },
-      { "language": "anglais", "level": "C1" }
+      {
+        "language": "français",
+        "level": "natif"
+      },
+      {
+        "language": "anglais",
+        "level": "C1"
+      }
     ],
     "contact": {
       "email": "contact@nbeny.fr",
@@ -41,12 +51,28 @@
     "DevOps Engineer"
   ],
   "education": [
-    { "school": "École 42 Paris", "detail": "Grande École du Numérique", "source": "https://nbeny.fr" },
-    { "school": "Formasup HDF", "detail": "Expert Architecte du Numérique", "source": "https://nbeny.fr" }
+    {
+      "school": "École 42 Paris",
+      "detail": "Grande École du Numérique",
+      "source": "https://nbeny.fr"
+    },
+    {
+      "school": "Formasup HDF",
+      "detail": "Expert Architecte du Numérique",
+      "source": "https://nbeny.fr"
+    }
   ],
   "certifications": [
-    { "name": "AWS Certified Cloud Practitioner (CLF-C02)", "level": "foundational", "source": "https://nbeny.fr", "note": "Certification de niveau fondamental — ne jamais la présenter comme une certification Architect ou DevOps." },
-    { "name": "HackTheBox", "source": "https://nbeny.fr" }
+    {
+      "name": "AWS Certified Cloud Practitioner (CLF-C02)",
+      "level": "foundational",
+      "source": "https://nbeny.fr",
+      "note": "Certification de niveau fondamental — ne jamais la présenter comme une certification Architect ou DevOps."
+    },
+    {
+      "name": "HackTheBox",
+      "source": "https://nbeny.fr"
+    }
   ],
   "experience": [
     {
@@ -115,44 +141,280 @@
     }
   ],
   "projects": [
-    { "name": "UrbanConnect", "pitch": "Marketplace sociale de proximité — social, objets, services dans un graphe de confiance", "stack": ["NestJS", "Next.js", "GraphQL", "Ory Kratos", "Elasticsearch", "Kafka", "Temporal", "Stripe", "Prisma", "Redis", "MinIO", "Docker"], "url": "https://github.com/nbeny/UrbanConnct" },
-    { "name": "BotTrading", "pitch": "Plateforme event-driven de market intelligence crypto, exécution gardée avec humain dans la boucle", "stack": ["Python", "Kafka", "PostgreSQL", "Hugging Face", "WebSocket"], "url": "https://github.com/nbeny/BotTrading" },
-    { "name": "AutoScanner", "pitch": "Plateforme de pentest orchestrant ~100 outils sandboxés, chasse de vulnérabilités pilotée par IA", "stack": ["Nx", "NestJS", "Prisma", "PostgreSQL", "BullMQ", "GraphQL", "React", "Docker"], "url": "https://github.com/nbeny/AutoScanner" },
-    { "name": "AutoDevClaude", "pitch": "Orchestrateur autonome qui pilote le CLI Claude en boucle pour construire un projet", "stack": ["NestJS", "Prisma", "PostgreSQL", "Next.js", "SSE", "Docker"], "url": "https://github.com/nbeny/AutoDevClaude" },
-    { "name": "CrowdSec + WAF Coraza", "pitch": "Protection complète d'un VPS : IDS, WAF OWASP CRS, bannissement nftables", "stack": ["CrowdSec", "Coraza", "Traefik", "nftables", "Docker", "Cloudflare"], "url": "https://github.com/nbeny/Crowdsec" },
-    { "name": "SVC — Service Control", "pitch": "Agents Rust en reverse connection pilotés depuis un dashboard web", "stack": ["Rust", "Axum", "PostgreSQL", "React", "WebSocket"], "url": "https://github.com/nbeny/RAT" },
-    { "name": "HomeLab & Server Ops", "pitch": "Infrastructure personnelle : Proxmox, K3s, Ansible, monitoring", "stack": ["Proxmox", "Kubernetes", "Docker", "Ansible", "Grafana", "Prometheus"], "url": "https://github.com/nbeny" }
+    {
+      "name": "UrbanConnect",
+      "pitch": "Marketplace sociale de proximité — social, objets, services dans un graphe de confiance",
+      "stack": [
+        "NestJS",
+        "Next.js",
+        "GraphQL",
+        "Ory Kratos",
+        "Elasticsearch",
+        "Kafka",
+        "Temporal",
+        "Stripe",
+        "Prisma",
+        "Redis",
+        "MinIO",
+        "Docker"
+      ],
+      "url": "https://github.com/nbeny/UrbanConnct"
+    },
+    {
+      "name": "BotTrading",
+      "pitch": "Plateforme event-driven de market intelligence crypto, exécution gardée avec humain dans la boucle",
+      "stack": [
+        "Python",
+        "Kafka",
+        "PostgreSQL",
+        "Hugging Face",
+        "WebSocket"
+      ],
+      "url": "https://github.com/nbeny/BotTrading"
+    },
+    {
+      "name": "AutoScanner",
+      "pitch": "Plateforme de pentest orchestrant ~100 outils sandboxés, chasse de vulnérabilités pilotée par IA",
+      "stack": [
+        "Nx",
+        "NestJS",
+        "Prisma",
+        "PostgreSQL",
+        "BullMQ",
+        "GraphQL",
+        "React",
+        "Docker"
+      ],
+      "url": "https://github.com/nbeny/AutoScanner"
+    },
+    {
+      "name": "AutoDevClaude",
+      "pitch": "Orchestrateur autonome qui pilote le CLI Claude en boucle pour construire un projet",
+      "stack": [
+        "NestJS",
+        "Prisma",
+        "PostgreSQL",
+        "Next.js",
+        "SSE",
+        "Docker"
+      ],
+      "url": "https://github.com/nbeny/AutoDevClaude"
+    },
+    {
+      "name": "CrowdSec + WAF Coraza",
+      "pitch": "Protection complète d'un VPS : IDS, WAF OWASP CRS, bannissement nftables",
+      "stack": [
+        "CrowdSec",
+        "Coraza",
+        "Traefik",
+        "nftables",
+        "Docker",
+        "Cloudflare"
+      ],
+      "url": "https://github.com/nbeny/Crowdsec"
+    },
+    {
+      "name": "SVC — Service Control",
+      "pitch": "Agents Rust en reverse connection pilotés depuis un dashboard web",
+      "stack": [
+        "Rust",
+        "Axum",
+        "PostgreSQL",
+        "React",
+        "WebSocket"
+      ],
+      "url": "https://github.com/nbeny/RAT"
+    },
+    {
+      "name": "HomeLab & Server Ops",
+      "pitch": "Infrastructure personnelle : Proxmox, K3s, Ansible, monitoring",
+      "stack": [
+        "Proxmox",
+        "Kubernetes",
+        "Docker",
+        "Ansible",
+        "Grafana",
+        "Prometheus"
+      ],
+      "url": "https://github.com/nbeny"
+    }
   ],
   "technologies": {
-    "core": ["TypeScript", "JavaScript", "Node.js", "NestJS", "React", "Next.js", "GraphQL", "PostgreSQL", "Docker", "Linux", "Prisma", "TypeORM"],
-    "strong": ["Python", "FastAPI", "React Native", "AWS", "Redis", "Elasticsearch", "Kafka", "MongoDB", "CI/CD", "Terraform", "Ansible", "Go", "gRPC", "Stripe", "BullMQ", "Temporal", "MinIO", "OWASP", "pentest"],
-    "familiar": ["Rust", "Axum", "Kubernetes", "K3s", "Hugging Face", "FFmpeg", "Nx", "SpiceDB", "Algolia", "Socket.io", "RabbitMQ", "Ory Kratos", "Proxmox", "Grafana", "Prometheus"],
-    "absent": ["Java", "Spring", ".NET", "C#", "PHP", "Symfony", "Laravel", "Ruby on Rails", "Angular", "Vue", "Scala", "Kotlin", "Swift", "Salesforce", "SAP"]
+    "core": [
+      "TypeScript",
+      "JavaScript",
+      "Node.js",
+      "NestJS",
+      "React",
+      "Next.js",
+      "GraphQL",
+      "PostgreSQL",
+      "Docker",
+      "Linux",
+      "Prisma",
+      "TypeORM"
+    ],
+    "strong": [
+      "Python",
+      "FastAPI",
+      "React Native",
+      "AWS",
+      "Redis",
+      "Elasticsearch",
+      "Kafka",
+      "MongoDB",
+      "CI/CD",
+      "Terraform",
+      "Ansible",
+      "Go",
+      "gRPC",
+      "Stripe",
+      "BullMQ",
+      "Temporal",
+      "MinIO",
+      "OWASP",
+      "pentest"
+    ],
+    "familiar": [
+      "Rust",
+      "Axum",
+      "Kubernetes",
+      "K3s",
+      "Hugging Face",
+      "FFmpeg",
+      "Nx",
+      "SpiceDB",
+      "Algolia",
+      "Socket.io",
+      "RabbitMQ",
+      "Ory Kratos",
+      "Proxmox",
+      "Grafana",
+      "Prometheus"
+    ],
+    "absent": [
+      "Java",
+      "Spring",
+      ".NET",
+      "C#",
+      "PHP",
+      "Symfony",
+      "Laravel",
+      "Ruby on Rails",
+      "Angular",
+      "Vue",
+      "Scala",
+      "Kotlin",
+      "Swift",
+      "Salesforce",
+      "SAP"
+    ]
   },
   "sectors": {
-    "proven": ["e-commerce", "cybersécurité", "GRC / conformité", "SaaS B2B", "maritime", "food tech / delivery"],
-    "wanted": ["fintech", "mobilité", "transport", "IA", "robotique", "marketplace", "IoT", "industrie"]
+    "proven": [
+      "e-commerce",
+      "cybersécurité",
+      "GRC / conformité",
+      "SaaS B2B",
+      "maritime",
+      "food tech / delivery"
+    ],
+    "wanted": [
+      "fintech",
+      "mobilité",
+      "transport",
+      "IA",
+      "robotique",
+      "marketplace",
+      "IoT",
+      "industrie"
+    ]
   },
   "preferences": {
-    "acceptedContracts": ["freelance", "cdi"],
+    "acceptedContracts": [
+      "freelance",
+      "cdi"
+    ],
     "contractWeighting": "equal",
     "contractWeightingNote": "Décision de Nicolas, 2026-09-18 : freelance et CDI recherchés au même niveau. Aucun bonus de contrat dans le scoring.",
     "remote": "strongly-preferred",
-    "maxOnsiteDaysByCity": { "lille": 3, "paris": 2 },
+    "maxOnsiteDaysByCity": {
+      "lille": 3,
+      "paris": 2
+    },
     "internationalMobility": "ouvert — mentionné sur le site (« Ouvert à la mobilité internationale »)",
     "availability": "Disponible pour de nouvelles missions freelance ou CDI (source : nbeny.fr). Date de démarrage précise non renseignée."
   },
   "compensation": {
     "note": "Le marché des Hauts-de-France est décrit comme faible par Nicolas (2026-09-18) : une attente unique de TJM ou de salaire n'aurait pas de sens. Chaque marché a donc sa propre référence. Tant qu'un marché est `unknown`, la dimension SALARY_OR_TJM est exclue du score au lieu d'être devinée. POSITIONING_AGENT remplit ces cases à partir de montants lus dans de vraies annonces, via `profile:set-market --source <url>`.",
     "markets": {
-      "fr-hdf": { "floor": null, "target": null, "currency": "EUR", "unit": "day", "status": "unknown", "sources": [] },
-      "fr-paris": { "floor": null, "target": null, "currency": "EUR", "unit": "day", "status": "unknown", "sources": [] },
-      "fr-other": { "floor": null, "target": null, "currency": "EUR", "unit": "day", "status": "unknown", "sources": [] },
-      "ch": { "floor": null, "target": null, "currency": "CHF", "unit": "day", "status": "unknown", "sources": [] },
-      "ca": { "floor": null, "target": null, "currency": "CAD", "unit": "year", "status": "unknown", "sources": [] },
-      "us": { "floor": null, "target": null, "currency": "USD", "unit": "year", "status": "unknown", "sources": [] },
-      "sg": { "floor": null, "target": null, "currency": "SGD", "unit": "year", "status": "unknown", "sources": [] },
-      "hk": { "floor": null, "target": null, "currency": "HKD", "unit": "year", "status": "unknown", "sources": [] }
+      "fr-hdf": {
+        "floor": 300,
+        "target": null,
+        "currency": "EUR",
+        "unit": "day",
+        "status": "known",
+        "sources": [],
+        "floorOrigin": "Plancher fixé par Nicolas le 2026-09-18 : en dessous de 300 EUR/j, c'est non. Ne reflète pas ce que paie le marché."
+      },
+      "fr-paris": {
+        "floor": 300,
+        "target": null,
+        "currency": "EUR",
+        "unit": "day",
+        "status": "known",
+        "sources": [],
+        "floorOrigin": "Plancher fixé par Nicolas le 2026-09-18 : en dessous de 300 EUR/j, c'est non. Ne reflète pas ce que paie le marché."
+      },
+      "fr-other": {
+        "floor": 300,
+        "target": null,
+        "currency": "EUR",
+        "unit": "day",
+        "status": "known",
+        "sources": [],
+        "floorOrigin": "Plancher fixé par Nicolas le 2026-09-18 : en dessous de 300 EUR/j, c'est non. Ne reflète pas ce que paie le marché."
+      },
+      "ch": {
+        "floor": null,
+        "target": null,
+        "currency": "CHF",
+        "unit": "day",
+        "status": "unknown",
+        "sources": []
+      },
+      "ca": {
+        "floor": null,
+        "target": null,
+        "currency": "CAD",
+        "unit": "year",
+        "status": "unknown",
+        "sources": []
+      },
+      "us": {
+        "floor": null,
+        "target": null,
+        "currency": "USD",
+        "unit": "year",
+        "status": "unknown",
+        "sources": []
+      },
+      "sg": {
+        "floor": null,
+        "target": null,
+        "currency": "SGD",
+        "unit": "year",
+        "status": "unknown",
+        "sources": []
+      },
+      "hk": {
+        "floor": null,
+        "target": null,
+        "currency": "HKD",
+        "unit": "year",
+        "status": "unknown",
+        "sources": []
+      }
     }
   },
   "unknowns": [

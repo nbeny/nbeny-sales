@@ -11,8 +11,20 @@ import type { Evidence, Opportunity, Profile } from '../src/lib/types.ts'
 const SRC = 'https://exemple.fr/jobs/1'
 const evidence = <T>(value: T): Evidence<T> => ({ value, sourceUrl: SRC, observedAt: '2026-09-18T09:00:00Z' })
 
+/**
+ * Le contexte de test repart toujours de marchés à `unknown`, quel que soit
+ * l'état réel de `data/profile.json` : un test qui dépend de la base vivante
+ * casse dès que Nicolas renseigne un plancher, et ne teste plus rien.
+ */
 function context(overrides: Partial<Profile> = {}): ScoringContext {
-  const profile = readJson<Profile>(join(DATA_DIR, 'profile.json'), {} as Profile)
+  const stored = readJson<Profile>(join(DATA_DIR, 'profile.json'), {} as Profile)
+  const markets = Object.fromEntries(
+    Object.entries(stored.compensation.markets).map(([key, market]) => [
+      key,
+      { ...market, floor: null, target: null, status: 'unknown' as const, sources: [] },
+    ]),
+  )
+  const profile = { ...stored, compensation: { ...stored.compensation, markets } }
   return {
     profile: { ...profile, ...overrides },
     scoring: readConfig('scoring'),

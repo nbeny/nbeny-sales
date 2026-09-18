@@ -130,12 +130,20 @@ export interface MatchResult {
 }
 
 export interface CompensationMarket {
+  /** En dessous, c'est non. Vient d'une décision de Nicolas, pas du marché. */
   floor: number | null
+  /** Ce que le marché paie réellement à ce niveau. Vient d'annonces observées. */
   target: number | null
   currency: string
   unit: 'day' | 'year'
   status: 'known' | 'unknown'
-  /** Sources des chiffres, si connus. Vide tant que `status` vaut `unknown`. */
+  /**
+   * D'où vient le plancher. Un plancher est un arbitrage personnel : il n'a pas
+   * d'URL, et le confondre avec une observation de marché produirait un scoring
+   * qui prétend mesurer le marché alors qu'il mesure une préférence.
+   */
+  floorOrigin?: string
+  /** URLs des annonces d'où viennent les montants observés (`target`). */
   sources: string[]
 }
 
