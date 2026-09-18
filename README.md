@@ -9,6 +9,7 @@ pas de `npm install`.
 ```bash
 node --test "test/*.test.ts"   # 50 tests
 node src/cli.ts help
+node src/cli.ts opportunity:list --min-score 85 --min-coverage 6 --details
 ```
 
 ## Le principe

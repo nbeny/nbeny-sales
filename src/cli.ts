@@ -29,6 +29,8 @@ import { transition, canTransition } from './lib/pipeline.ts'
 import { computeMatch, type KeywordsConfig, type LocationsConfig, type ScoringConfig, type ScoringContext } from './lib/scoring.ts'
 import { assertValidOpportunity, assertValidOutreach, lintOutreachBody, validateOpportunityInput, ValidationError } from './lib/validate.ts'
 import { buildDailyReport } from './lib/report.ts'
+import { filterOpportunities } from './lib/query.ts'
+import { formatCompact, formatDetailed } from './lib/format.ts'
 import type { Followup, FollowupStatus, Opportunity, OutreachMessage, Profile, StageName } from './lib/types.ts'
 
 const args = process.argv.slice(2)
@@ -47,7 +49,7 @@ function positional(index: number): string | undefined {
   return args.slice(1).filter((a) => !a.startsWith('--') && !isFlagValue(a))[index]
 }
 
-const FLAGS_WITH_VALUE = ['file', 'json', 'days', 'priority', 'stage', 'contract', 'note', 'floor', 'target', 'source', 'currency', 'unit', 'limit']
+const FLAGS_WITH_VALUE = ['file', 'json', 'days', 'priority', 'stage', 'contract', 'note', 'floor', 'target', 'source', 'decision', 'currency', 'unit', 'limit', 'min-score', 'min-coverage', 'remote', 'location']
 function isFlagValue(token: string): boolean {
   const i = args.indexOf(token)
   return i > 0 && args[i - 1].startsWith('--') && FLAGS_WITH_VALUE.includes(args[i - 1].slice(2))
@@ -199,28 +201,27 @@ function opportunityImport(): void {
 
 function opportunityList(): void {
   const rows = readCollection<Opportunity>('opportunities')
-  const priority = flag('priority')
-  const stage = flag('stage')
-  const contract = flag('contract')
-  const limit = Number(flag('limit') ?? 50)
+  const num = (name: string) => (flag(name) === undefined ? undefined : Number(flag(name)))
 
-  const filtered = rows
-    .filter((o) => !priority || o.match?.priority === priority.toUpperCase())
-    .filter((o) => !stage || o.stage === stage.toUpperCase())
-    .filter((o) => !contract || ['both', contract].includes(o.facts.contract?.value ?? ''))
-    .sort((a, b) => (b.match?.score ?? -1) - (a.match?.score ?? -1))
-    .slice(0, limit)
+  const filtered = filterOpportunities(rows, {
+    priority: flag('priority'),
+    stage: flag('stage'),
+    contract: flag('contract'),
+    remote: flag('remote'),
+    location: flag('location'),
+    minScore: num('min-score'),
+    minCoverage: num('min-coverage'),
+    limit: num('limit') ?? 50,
+  })
 
   if (!filtered.length) {
-    console.log('Aucune opportunité ne correspond à ce filtre.')
+    console.log('Aucune opportunité ne correspond à ce filtre. (' + rows.length + ' en base)')
     return
   }
-  for (const o of filtered) {
-    const m = o.match
-    console.log(
-      [o.id, m ? m.priority.padEnd(6) : 'NONE  ', m ? String(m.score).padStart(3) + '/100 (' + m.coverage + '/8)' : '  -', o.stage.padEnd(14), o.company + ' — ' + o.title].join('  '),
-    )
-  }
+
+  const detailed = has('details') || has('v')
+  console.log(filtered.map(detailed ? formatDetailed : formatCompact).join(detailed ? '\n\n' : '\n'))
+  console.log('\n' + filtered.length + ' sur ' + rows.length + ' opportunité(s).')
 }
 
 function opportunityShow(): void {
@@ -445,7 +446,16 @@ function help(): void {
 Opportunités
   opportunity:add --file <json>       Ajoute après validation + déduplication + scoring
   opportunity:import --file <json>    Import en lot (tableau JSON), une entrée refusée n'arrête pas les autres
-  opportunity:list [--priority HIGH] [--stage X] [--contract freelance] [--limit N]
+  opportunity:list [filtres] [--details]
+      --min-score N      score minimum sur 100
+      --min-coverage N   dimensions connues minimum sur 8
+      --priority HIGH    HIGH | MEDIUM | LOW
+      --contract X       freelance | cdi
+      --remote X         full | hybrid | onsite
+      --location X       filtre sur le lieu, ex. lille
+      --stage X          étape du pipeline
+      --limit N          50 par défaut
+      --details, --v     fiche complète au lieu d'une ligne
   opportunity:show <id>
   opportunity:stage <id> <STAGE> [--note "..."]
   match:all [<id>]                    Re-score tout (ou une seule opportunité)
