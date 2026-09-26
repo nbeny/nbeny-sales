@@ -56,6 +56,12 @@ function commonIssues(m: OutreachMessage, opportunity: Opportunity | undefined):
   if (hidden.length) {
     issues.push('Caractères invisibles ou de contrôle dans l\'objet ou le corps : ' + hidden.join(', ') + '. Corrige avec outreach:edit ' + m.id + '.')
   }
+  if (m.to) {
+    const hiddenTo = findHiddenCharacters([m.to.email, m.to.name ?? '', m.to.sourceUrl].join('\n'))
+    if (hiddenTo.length) {
+      issues.push('Caractères invisibles ou de contrôle dans le destinataire (adresse, nom ou source) : ' + hiddenTo.join(', ') + '. Corrige avec outreach:set-recipient ' + m.id + '.')
+    }
+  }
   return issues
 }
 

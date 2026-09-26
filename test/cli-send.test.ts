@@ -12,6 +12,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { approvalHash } from '../src/lib/outreach.ts'
+import { SECRET_PATH } from '../src/lib/mail-config.ts'
 import type { Opportunity, OutreachMessage } from '../src/lib/types.ts'
 import { fakeServer, type FakeServer } from './helpers/fake-smtp.ts'
 
@@ -96,15 +97,23 @@ function readEvents(env: Env): Record<string, unknown>[] {
 
 /** Lancement asynchrone : le faux serveur tourne dans ce processus, il ne faut pas bloquer sa boucle. */
 function cli(env: Env, ...args: string[]): Promise<Run> {
+  return cliWith(env, {}, ...args)
+}
+
+/** `extra` remplace des variables ; une valeur `undefined` retire la variable. */
+function cliWith(env: Env, extra: Record<string, string | undefined>, ...args: string[]): Promise<Run> {
+  const vars: Record<string, string | undefined> = {
+    ...process.env,
+    NODE_OPTIONS: '',
+    NBENY_SALES_DATA_DIR: env.dataDir,
+    NBENY_SALES_CONFIG_DIR: env.configDir,
+    NBENY_SALES_SMTP_ENV: env.secret,
+    ...extra,
+  }
+  for (const key of Object.keys(vars)) if (vars[key] === undefined) delete vars[key]
   return new Promise((resolvePromise, reject) => {
     const child = spawn(process.execPath, [CLI, ...args], {
-      env: {
-        ...process.env,
-        NODE_OPTIONS: '',
-        NBENY_SALES_DATA_DIR: env.dataDir,
-        NBENY_SALES_CONFIG_DIR: env.configDir,
-        NBENY_SALES_SMTP_ENV: env.secret,
-      },
+      env: vars,
       stdio: ['ignore', 'pipe', 'pipe'],
     })
     let stdout = ''
@@ -192,13 +201,14 @@ describe('outreach:send (intégration)', () => {
     }
   })
 
-  test('verrou présent : refusé, rien ne part, le verrou d\'autrui reste en place', async () => {
+  test('verrou d\'un processus vivant : refusé, rien ne part, le verrou d\'autrui reste en place', async () => {
     const fake = await fakeServer()
     try {
       const env = setup(fake.port)
       writeOutreach(env, [approved('MSG-2026-0001', 'rh@acme.example')])
       const lock = join(env.dataDir, 'send.lock.json')
-      writeFileSync(lock, JSON.stringify({ pid: 999999, at: '2026-09-26T10:00:00Z' }))
+      // Le processus de test lui-même : il existe forcément.
+      writeFileSync(lock, JSON.stringify({ pid: process.pid, at: '2026-09-26T10:00:00Z' }))
       const run = await cli(env, 'outreach:send', 'MSG-2026-0001')
       assert.equal(run.code, 2)
       assert.match(run.stderr, /Un envoi est déjà en cours/)
@@ -208,6 +218,76 @@ describe('outreach:send (intégration)', () => {
     } finally {
       await fake.close()
     }
+  })
+
+  test('verrou d\'un processus disparu : toujours refusé, le message le dit', async () => {
+    const fake = await fakeServer()
+    try {
+      const env = setup(fake.port)
+      writeOutreach(env, [approved('MSG-2026-0001', 'rh@acme.example')])
+      const lock = join(env.dataDir, 'send.lock.json')
+      writeFileSync(lock, JSON.stringify({ pid: 999999, at: '2026-09-26T10:00:00Z' }))
+      const run = await cli(env, 'outreach:send', 'MSG-2026-0001')
+      assert.equal(run.code, 2)
+      assert.match(run.stderr, /le processus 999999 n'existe plus/)
+      assert.match(run.stderr, /dossier Envoyés/)
+      assert.equal(fake.received.length, 0)
+      assert.equal(existsSync(lock), true)
+    } finally {
+      await fake.close()
+    }
+  })
+
+  test('dossiers de test sans NBENY_SALES_SMTP_ENV : refusé avant tout, aucune connexion', async () => {
+    const fake = await fakeServer()
+    try {
+      const env = setup(fake.port)
+      writeOutreach(env, [approved('MSG-2026-0001', 'rh@acme.example')])
+      const run = await cliWith(env, { NBENY_SALES_SMTP_ENV: undefined }, 'outreach:send', 'MSG-2026-0001')
+      assert.equal(run.code, 2)
+      assert.match(run.stderr, /le vrai mot de passe SMTP n'est jamais utilisé/)
+      assert.equal(fake.received.length, 0)
+      assert.equal(readEvents(env).length, 0)
+      assert.equal(existsSync(join(env.dataDir, 'send.lock.json')), false)
+    } finally {
+      await fake.close()
+    }
+  })
+
+  test('NBENY_SALES_SMTP_ENV pointant vers le vrai secret : refusé avant toute lecture', async () => {
+    const fake = await fakeServer()
+    try {
+      const env = setup(fake.port)
+      writeOutreach(env, [approved('MSG-2026-0001', 'rh@acme.example')])
+      // Seul le chemin est transmis : le vrai fichier n'est ni créé ni lu par ce test.
+      const run = await cliWith(env, { NBENY_SALES_SMTP_ENV: SECRET_PATH }, 'outreach:send', 'MSG-2026-0001')
+      assert.equal(run.code, 2)
+      assert.match(run.stderr, /le vrai mot de passe SMTP n'est jamais utilisé/)
+      assert.equal(fake.received.length, 0)
+      assert.equal(readEvents(env).length, 0)
+    } finally {
+      await fake.close()
+    }
+  })
+
+  test('TLS coupé vers un hôte non local : refusé, aucune tentative de connexion', async () => {
+    const env = setup(2525, { smtp: { host: '10.9.9.9', port: 2525, servername: 'localhost', tls: false } })
+    writeOutreach(env, [approved('MSG-2026-0001', 'rh@acme.example')])
+    const started = Date.now()
+    const run = await cli(env, 'outreach:send', 'MSG-2026-0001')
+    assert.equal(run.code, 2)
+    assert.match(run.stderr, /TLS et tunnel sont obligatoires/)
+    assert.equal(readEvents(env).length, 0)
+    // Une tentative vers 10.9.9.9 attendrait le délai de connexion ; le refus est immédiat.
+    assert.ok(Date.now() - started < 10_000)
+  })
+
+  test('les variables de test sont signalées à chaque lancement', async () => {
+    const env = setup(2525)
+    writeOutreach(env, [])
+    const run = await cli(env, 'outreach:list')
+    assert.equal(run.code, 0)
+    assert.match(run.stderr, /Variables de test actives : données = .+, config = /)
   })
 
   test('coupure après le corps : send-uncertain, reste APPROVED, et un second lancement le refuse', async () => {

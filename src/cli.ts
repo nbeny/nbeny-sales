@@ -15,6 +15,8 @@ import { join } from 'node:path'
 import { createInterface } from 'node:readline/promises'
 import { setTimeout as pause } from 'node:timers/promises'
 import { closeSync, openSync, unlinkSync, writeSync } from 'node:fs'
+import { resolve as resolvePath } from 'node:path'
+import { CONFIG_DIR } from './lib/store.ts'
 import {
   appendHistory,
   readHistory,
@@ -31,7 +33,7 @@ import { nextId } from './lib/ids.ts'
 import { fingerprint, findDuplicate, type DedupRow } from './lib/dedup.ts'
 import { transition, canTransition } from './lib/pipeline.ts'
 import { computeMatch, type KeywordsConfig, type LocationsConfig, type ScoringConfig, type ScoringContext } from './lib/scoring.ts'
-import { assertValidOpportunity, assertValidOutreach, lintOutreachBody, validateOpportunityInput, validateRecipient, ValidationError } from './lib/validate.ts'
+import { assertValidOpportunity, assertValidOutreach, lintOutreachBody, validateOpportunityInput, validateRecipient, escapeForDisplay, ValidationError } from './lib/validate.ts'
 import { buildDailyReport } from './lib/report.ts'
 import { filterOpportunities } from './lib/query.ts'
 import { formatCompact, formatDetailed } from './lib/format.ts'
@@ -39,7 +41,7 @@ import { approvalHash, approvalIssues, orphanSendings, sendIssues, sentCountOn, 
 import { buildMessage } from './lib/mime.ts'
 import { sendMail, SmtpError } from './lib/smtp.ts'
 import { withTunnel } from './lib/tunnel.ts'
-import { readSmtpPassword, SECRET_PATH, type MailConfig } from './lib/mail-config.ts'
+import { readSmtpPassword, SECRET_PATH, sendSafetyIssues, type MailConfig } from './lib/mail-config.ts'
 import type { Followup, FollowupStatus, Opportunity, OutreachMessage, Profile, StageName } from './lib/types.ts'
 
 const args = process.argv.slice(2)
@@ -62,6 +64,11 @@ const FLAGS_WITH_VALUE = ['file', 'json', 'days', 'priority', 'stage', 'contract
 function isFlagValue(token: string): boolean {
   const i = args.indexOf(token)
   return i > 0 && args[i - 1].startsWith('--') && FLAGS_WITH_VALUE.includes(args[i - 1].slice(2))
+}
+
+// Visible à chaque lancement : des dossiers de test restés actifs par erreur ne passent pas inaperçus.
+if (process.env.NBENY_SALES_DATA_DIR || process.env.NBENY_SALES_CONFIG_DIR || process.env.NBENY_SALES_SMTP_ENV) {
+  console.error('⚠ Variables de test actives : données = ' + resolvePath(DATA_DIR) + ', config = ' + resolvePath(CONFIG_DIR))
 }
 
 /** Charge la charge utile JSON : `--file`, `--json`, ou stdin. */
@@ -437,12 +444,13 @@ async function outreachApprove(): Promise<void> {
   }
   const to = displayed.to!
   console.log([
-    'De     : ' + config.from.name + ' <' + config.from.email + '>',
-    'À      : ' + (to.name ? to.name + ' <' + to.email + '>' : to.email),
-    'Adresse lue sur : ' + to.sourceUrl,
-    'Objet  : ' + displayed.subject,
+    // Deuxième barrière après approvalIssues : rien d'affiché ne peut piloter le terminal.
+    'De     : ' + escapeForDisplay(config.from.name + ' <' + config.from.email + '>'),
+    'À      : ' + escapeForDisplay(to.name ? to.name + ' <' + to.email + '>' : to.email),
+    'Adresse lue sur : ' + escapeForDisplay(to.sourceUrl),
+    'Objet  : ' + escapeForDisplay(displayed.subject),
     '',
-    displayed.body,
+    escapeForDisplay(displayed.body, true),
     '',
   ].join('\n'))
   const shownHash = approvalHash(displayed)
@@ -507,7 +515,16 @@ function acquireSendLock(): () => void {
     if ((error as { code?: string }).code !== 'EEXIST') throw error
     let content = ''
     try { content = readFileSync(path, 'utf8').trim() } catch { /* supprimé entre-temps */ }
-    console.error('Un envoi est déjà en cours (verrou ' + path + ', ' + content + '). S\'il n\'y en a pas, supprime ce fichier.')
+    let pid: number | undefined
+    try { pid = Number(JSON.parse(content).pid) || undefined } catch { /* verrou illisible */ }
+    let gone = false
+    if (pid) {
+      try { process.kill(pid, 0) } catch (e) { gone = (e as { code?: string }).code === 'ESRCH' }
+    }
+    // Refus dans les deux cas : un processus disparu a pu être coupé en plein envoi.
+    console.error(gone
+      ? 'Verrou d\'envoi présent (' + path + ', ' + content + ') mais le processus ' + pid + ' n\'existe plus. Vérifie le dossier Envoyés, puis supprime ce fichier.'
+      : 'Un envoi est déjà en cours (verrou ' + path + ', ' + content + '). S\'il n\'y en a pas, supprime ce fichier.')
     process.exit(2)
   }
   try {
@@ -532,6 +549,14 @@ async function outreachSend(): Promise<void> {
     return
   }
 
+  if (!has('dry-run')) {
+    // Avant le verrou et avant toute lecture de mot de passe.
+    const unsafe = sendSafetyIssues(config)
+    if (unsafe.length) {
+      for (const u of unsafe) console.error(u)
+      process.exit(2)
+    }
+  }
   const release = has('dry-run') ? () => undefined : acquireSendLock()
   try {
     // Premier tri, sous le verrou. Chaque message est revérifié juste avant son envoi.
@@ -612,9 +637,10 @@ async function outreachSend(): Promise<void> {
           continue
         }
         const to = m.to!
-        const mail = build(m)
         let dataStarted = false
         try {
+          // Dans le try : une erreur de construction est notée send-failed pour ce message.
+          const mail = build(m)
           await sendMail({
             host,
             port,

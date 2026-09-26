@@ -177,18 +177,64 @@ export function findPlaceholders(text: string): string[] {
 
 /**
  * Caractères qu'on ne voit pas en relisant : contrôles C0 (sauf \n et \t, donc
- * \r compris), DEL et C1, largeur nulle, contrôles bidirectionnels, BOM. Ils
- * peuvent faire lire à Nicolas autre chose que ce qui part.
+ * \r compris), DEL et C1, trait d'union conditionnel, largeur nulle, remplisseurs
+ * Hangul, contrôles bidirectionnels, BOM, caractères d'étiquette. Ils peuvent
+ * faire lire à Nicolas autre chose que ce qui part.
+ *
+ * Plages en points de code (et non une classe de caractères écrite en échappements)
+ * pour couvrir aussi le plan 14 sans dépendre de l'encodage du fichier source.
  */
-const HIDDEN = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/g
+const HIDDEN_RANGES: readonly (readonly [number, number])[] = [
+  [0x0000, 0x0008],
+  [0x000b, 0x001f],
+  [0x007f, 0x009f],
+  [0x00ad, 0x00ad],
+  [0x034f, 0x034f],
+  [0x115f, 0x1160],
+  [0x200b, 0x200f],
+  [0x202a, 0x202e],
+  [0x2060, 0x2064],
+  [0x2066, 0x2069],
+  [0x3164, 0x3164],
+  [0xfeff, 0xfeff],
+  [0xffa0, 0xffa0],
+  [0xe0000, 0xe007f],
+]
+
+function isHidden(point: number): boolean {
+  return HIDDEN_RANGES.some(([low, high]) => point >= low && point <= high)
+}
+
+function codePointLabel(point: number): string {
+  return point.toString(16).toUpperCase().padStart(4, '0')
+}
 
 /** Caractères invisibles ou de contrôle présents, distincts, au format `U+XXXX`, dans l'ordre d'apparition. */
 export function findHiddenCharacters(text: string): string[] {
   const found = new Set<string>()
-  for (const c of text.match(HIDDEN) ?? []) {
-    found.add('U+' + c.charCodeAt(0).toString(16).toUpperCase().padStart(4, '0'))
+  // for…of parcourt par point de code : un caractère hors BMP n'est pas coupé en deux.
+  for (const c of text) {
+    const point = c.codePointAt(0)!
+    if (isHidden(point)) found.add('U+' + codePointLabel(point))
   }
   return [...found]
+}
+
+/**
+ * Texte sûr à afficher dans un terminal : tout caractère caché (et tout contrôle
+ * restant) devient `\u{XXXX}`, la tabulation `\t`. `multiline` garde les sauts
+ * de ligne du corps ; sinon ils sont échappés aussi.
+ */
+export function escapeForDisplay(text: string, multiline = false): string {
+  let out = ''
+  for (const c of text) {
+    const point = c.codePointAt(0)!
+    if (c === '\n' && multiline) out += c
+    else if (c === '\t') out += '\\t'
+    else if (isHidden(point) || point <= 0x1f || (point >= 0x7f && point <= 0x9f)) out += '\\u{' + codePointLabel(point) + '}'
+    else out += c
+  }
+  return out
 }
 
 function hiddenIssue(label: string, text: string): string | undefined {
@@ -206,6 +252,9 @@ export function validateRecipient(input: { email?: string; sourceUrl?: string; n
   if (!isHttpUrl(input.sourceUrl)) {
     issues.push('`--source` doit être l\'URL publique où cette adresse a été lue. Une adresse reconstituée (prenom.nom@…) n\'est pas une adresse lue.')
   }
+  // La source est affichée à l'approbation : une séquence d'échappement y réécrirait l'écran.
+  const hiddenSource = typeof input.sourceUrl === 'string' ? hiddenIssue('`--source`', input.sourceUrl) : undefined
+  if (hiddenSource) issues.push(hiddenSource)
   if (input.name !== undefined) {
     const hidden = hiddenIssue('`--name`', input.name)
     if (hidden) issues.push(hidden)

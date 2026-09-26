@@ -1,7 +1,7 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { findHiddenCharacters, findPlaceholders, validateRecipient } from '../src/lib/validate.ts'
+import { escapeForDisplay, findHiddenCharacters, findPlaceholders, validateRecipient } from '../src/lib/validate.ts'
 import { approvalHash, approvalIssues, sendIssues, orphanSendings, sentCountOn, type HistoryEvent, type SendContext } from '../src/lib/outreach.ts'
 import type { MailConfig } from '../src/lib/mail-config.ts'
 import type { Opportunity, OutreachMessage } from '../src/lib/types.ts'
@@ -278,5 +278,75 @@ describe('sendIssues — journal', () => {
 
   test('envoi journalisé pour un autre message : sans effet', () => {
     assert.deepEqual(sendIssues(approved(), ctx({ events: [ev('outreach:sent', 'MSG-2026-0009')] })), [])
+  })
+})
+
+const cp = (...points: number[]) => String.fromCodePoint(...points)
+
+describe('findHiddenCharacters — ensemble étendu', () => {
+  test('trait d\'union conditionnel U+00AD : signalé', () => {
+    assert.deepEqual(findHiddenCharacters('dé' + cp(0xad) + 'veloppeur'), ['U+00AD'])
+  })
+
+  test('caractère d\'étiquette U+E0041 : signalé', () => {
+    assert.deepEqual(findHiddenCharacters('Node' + cp(0xe0041) + '.js'), ['U+E0041'])
+  })
+
+  test('U+034F, U+115F, U+1160, U+3164, U+FFA0, U+E0000, U+E007F : signalés', () => {
+    assert.deepEqual(
+      findHiddenCharacters(cp(0x34f, 0x115f, 0x1160, 0x3164, 0xffa0, 0xe0000, 0xe007f)),
+      ['U+034F', 'U+115F', 'U+1160', 'U+3164', 'U+FFA0', 'U+E0000', 'U+E007F'],
+    )
+  })
+
+  test('emoji et caractères hors BMP ordinaires : rien', () => {
+    assert.deepEqual(findHiddenCharacters('Merci ' + cp(0x1f44d) + ' ' + cp(0x1d11e)), [])
+  })
+})
+
+describe('escapeForDisplay', () => {
+  test('échappe les caractères cachés en \\u{XXXX}, les tabulations en \\t', () => {
+    assert.equal(escapeForDisplay('a' + cp(0x1b) + '[8mb\tc' + cp(0x202e) + cp(0xe0041)), 'a\\u{001B}[8mb\\tc\\u{202E}\\u{E0041}')
+  })
+
+  test('ligne simple : le saut de ligne est échappé', () => {
+    assert.equal(escapeForDisplay('a\nb'), 'a\\u{000A}b')
+  })
+
+  test('corps : les sauts de ligne restent de vrais sauts de ligne, \\r est échappé', () => {
+    assert.equal(escapeForDisplay('a\r\nb\nc', true), 'a\\u{000D}\nb\nc')
+  })
+
+  test('texte ordinaire : inchangé', () => {
+    assert.equal(escapeForDisplay('Élodie Martin <rh@acme.example>'), 'Élodie Martin <rh@acme.example>')
+  })
+})
+
+describe('validateRecipient — source', () => {
+  test('source avec séquence d\'échappement : refusée', () => {
+    const issues = validateRecipient({ email: 'rh@acme.example', sourceUrl: 'https://x.example/' + cp(0x1b) + '[8mhidden' })
+    assert.ok(issues.some((i) => i.includes('--source') && i.includes('U+001B')))
+  })
+})
+
+describe('commonIssues — destinataire', () => {
+  const withTo = (to: Partial<NonNullable<OutreachMessage['to']>>) =>
+    draft({ to: { email: 'rh@acme.example', sourceUrl: 'https://acme.example/contact', readAt: '2026-09-27T00:00:00Z', ...to } })
+
+  test('nom du destinataire avec caractère caché : approbation refusée', () => {
+    const issues = approvalIssues(withTo({ name: 'Élodie' + cp(0x1b) + '[1A' }), opportunity('OUTREACH_READY'))
+    assert.ok(issues.some((i) => i.includes('destinataire') && i.includes('U+001B')))
+  })
+
+  test('source du destinataire avec caractère caché : envoi refusé', () => {
+    const m = approved()
+    m.to = { ...m.to!, sourceUrl: 'https://acme.example/' + cp(0x202e) }
+    m.approvedHash = approvalHash(m)
+    assert.ok(sendIssues(m, ctx()).some((i) => i.includes('destinataire') && i.includes('U+202E')))
+  })
+
+  test('adresse du destinataire avec caractère caché : approbation refusée', () => {
+    const issues = approvalIssues(withTo({ email: 'rh' + cp(0x200b) + '@acme.example' }), opportunity('OUTREACH_READY'))
+    assert.ok(issues.some((i) => i.includes('destinataire') && i.includes('U+200B')))
   })
 })
