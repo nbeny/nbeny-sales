@@ -1,0 +1,9 @@
+{
+  "from": { "email": "nicolas@urbanlink.fr", "name": "Nicolas BENY" },
+  "bccSelf": true,
+  "smtp": { "host": "10.0.0.140", "port": 465, "servername": "mail.urbanlink.fr" },
+  "tunnel": { "jumpHost": "pve" },
+  "dailyCap": 10,
+  "minDelaySeconds": 90,
+  "recipientCooldownDays": 30
+}
