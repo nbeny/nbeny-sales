@@ -10,7 +10,8 @@
  *   node src/cli.ts match:all
  *   node src/cli.ts report:daily
  */
-import { closeSync, openSync, readFileSync, unlinkSync, writeSync } from 'node:fs'
+import { closeSync, existsSync, openSync, readFileSync, unlinkSync, writeSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
 import { join, resolve as resolvePath } from 'node:path'
 import { createInterface } from 'node:readline/promises'
 import { setTimeout as pause } from 'node:timers/promises'
@@ -26,6 +27,7 @@ import {
   DATA_DIR,
   CONFIG_DIR,
   REPORTS_DIR,
+  ROOT,
 } from './lib/store.ts'
 import { nextId } from './lib/ids.ts'
 import { fingerprint, findDuplicate, type DedupRow } from './lib/dedup.ts'
@@ -35,12 +37,13 @@ import { assertValidOpportunity, assertValidOutreach, lintOutreachBody, validate
 import { buildDailyReport } from './lib/report.ts'
 import { filterOpportunities } from './lib/query.ts'
 import { formatCompact, formatDetailed } from './lib/format.ts'
+import { parseRuns, formatDuration, type RunStatus } from './lib/runs.ts'
 import { approvalHash, approvalIssues, orphanSendings, sendIssues, sentCountOn, sentEvidence, type HistoryEvent } from './lib/outreach.ts'
 import { buildMessage } from './lib/mime.ts'
 import { sendMail, SmtpError } from './lib/smtp.ts'
 import { withTunnel } from './lib/tunnel.ts'
 import { readSmtpPassword, SECRET_PATH, sendSafetyIssues, type MailConfig } from './lib/mail-config.ts'
-import type { Followup, FollowupStatus, Opportunity, OutreachMessage, Profile, StageName } from './lib/types.ts'
+import type { Assumption, Followup, FollowupStatus, Opportunity, OutreachMessage, Profile, StageName } from './lib/types.ts'
 
 const args = process.argv.slice(2)
 const command = args[0] ?? 'help'
@@ -243,6 +246,70 @@ function opportunityShow(): void {
   const opp = readCollection<Opportunity>('opportunities').find((o) => o.id === id)
   if (!opp) { console.error('Opportunité introuvable : ' + id); process.exit(1) }
   console.log(JSON.stringify(opp, null, 2))
+}
+
+/**
+ * Enrichissement d'une opportunité déjà en base.
+ *
+ * Le chemin normal pour faire monter la couverture : on retourne sur la page
+ * source, on lit ce que le premier passage avait manqué, et on ajoute les faits
+ * ici. `opportunity:add` créerait un doublon ; l'édition à la main de `data/`
+ * est interdite. Cette commande est donc le seul chemin honnête.
+ *
+ * Un fait déjà présent n'est jamais remplacé en silence : il faut `--overwrite`.
+ */
+function opportunityEnrich(): void {
+  const id = positional(0)
+  if (!id) { console.error('Usage : opportunity:enrich <id> --file <json>'); process.exit(1) }
+
+  const rows = readCollection<Opportunity>('opportunities')
+  const opp = rows.find((o) => o.id === id)
+  if (!opp) { console.error('Opportunité introuvable : ' + id); process.exit(1) }
+
+  const input = payload()
+  const incomingFacts = (input.facts ?? {}) as Record<string, unknown>
+  const incomingAssumptions = (input.assumptions ?? []) as Assumption[]
+
+  const clashes = Object.keys(incomingFacts).filter((k) => k in opp.facts)
+  if (clashes.length && !has('overwrite')) {
+    console.error('Faits déjà renseignés : ' + clashes.join(', ') + '. Rien n\'a été écrit.')
+    console.error('Si la nouvelle lecture corrige l\'ancienne, relance avec --overwrite.')
+    process.exit(2)
+  }
+
+  const mergedFacts = { ...opp.facts, ...incomingFacts }
+  const mergedAssumptions = [
+    ...opp.assumptions.filter((a) => !incomingAssumptions.some((b) => b.field === a.field)),
+    ...incomingAssumptions,
+  ].filter((a) => !(a.field in mergedFacts))
+
+  // Le candidat repasse par exactement la même validation qu'à la création :
+  // pas de fait sans URL source, pas de fait aussi déclaré en hypothèse.
+  assertValidOpportunity({
+    title: opp.title,
+    company: opp.company,
+    sourceUrl: opp.sourceUrl,
+    sourceName: opp.sourceName,
+    facts: mergedFacts,
+    assumptions: mergedAssumptions,
+  })
+
+  const before = { score: opp.match?.score ?? 0, coverage: opp.match?.coverage ?? 0, priority: opp.match?.priority ?? 'LOW' }
+  opp.facts = mergedFacts as Opportunity['facts']
+  opp.assumptions = mergedAssumptions
+  if (typeof input.notes === 'string' && input.notes.trim()) opp.notes = input.notes
+  opp.match = computeMatch(opp, scoringContext())
+
+  writeCollection('opportunities', rows)
+  const added = Object.keys(incomingFacts)
+  appendHistory({ event: 'opportunity:enrich', id, facts: added, from: before, to: { score: opp.match.score, coverage: opp.match.coverage, priority: opp.match.priority } })
+
+  console.log(
+    id + ' enrichie (' + (added.join(', ') || 'aucun fait') + ') — ' +
+    before.score + '/100 (' + before.coverage + '/8, ' + before.priority + ')' +
+    '  ->  ' + opp.match.score + '/100 (' + opp.match.coverage + '/8, ' + opp.match.priority + ')',
+  )
+  for (const w of opp.match.weaknesses) console.log('  ⚠️  ' + w)
 }
 
 function opportunityStage(): void {
@@ -843,6 +910,42 @@ function stats(): void {
   console.log('Suivis       : ' + readCollection('followups').length)
 }
 
+const RUN_BADGE: Record<RunStatus, string> = { OK: '✅ OK         ', FAILED: '❌ ÉCHEC      ', RUNNING: '⏳ EN COURS   ', INTERRUPTED: '⚠️  INTERROMPU' }
+const SCHEDULED_TASK = 'nbeny-sales-daily'
+
+/**
+ * Historique des lancements planifiés, du plus récent au plus ancien, suivi de
+ * l'état de la tâche Windows. Un jour ouvré sans ligne ici = l'agent n'a pas tourné.
+ */
+function runs(): void {
+  const file = join(ROOT, 'logs', 'cron-runs.log')
+  const all = existsSync(file) ? parseRuns(readFileSync(file, 'utf8')) : []
+  const limit = Number(flag('limit') ?? 20)
+
+  if (!all.length) console.log('Aucun lancement enregistré (' + file + ').')
+  for (const r of all.reverse().slice(0, limit)) {
+    const when = r.start.toLocaleString('fr-FR', { weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+    const took = r.end ? formatDuration(r.end.getTime() - r.start.getTime()) : '—'
+    const exit = r.exitCode !== undefined && r.exitCode !== 0 ? '  exit=' + r.exitCode : ''
+    console.log([when.padEnd(18), RUN_BADGE[r.status], took.padStart(9), '  ' + r.command + exit, r.log ? '  logs/' + r.log : ''].join('  '))
+  }
+  if (all.length > limit) console.log('… ' + (all.length - limit) + ' lancements plus anciens (--limit N)')
+
+  if (process.platform !== 'win32') return
+  try {
+    const info = execFileSync('powershell.exe', [
+      '-NoProfile', '-Command',
+      "$t = Get-ScheduledTask -TaskName '" + SCHEDULED_TASK + "' -ErrorAction Stop; $i = $t | Get-ScheduledTaskInfo; " +
+      "'{0}|{1}|{2}' -f $t.State, $i.NextRunTime.ToString('ddd dd/MM HH:mm'), $i.LastTaskResult",
+    ], { encoding: 'utf8' }).trim()
+    const [state, next, last] = info.split('|')
+    const lastLabel = last === '0' ? 'OK' : last === '267011' ? 'jamais lancée' : last === '267009' ? 'en cours' : 'code ' + last
+    console.log('\nTâche Windows ' + SCHEDULED_TASK + ' : ' + state + ' · prochain lancement ' + next + ' · dernier résultat ' + lastLabel)
+  } catch {
+    console.log('\nTâche Windows ' + SCHEDULED_TASK + ' introuvable : aucun lancement automatique n\'est programmé.')
+  }
+}
+
 function help(): void {
   console.log(`nbeny-sales — base de la prospection
 
@@ -860,6 +963,8 @@ Opportunités
       --limit N          50 par défaut
       --details, --v     fiche complète au lieu d'une ligne
   opportunity:show <id>
+  opportunity:enrich <id> --file <json>   Ajoute des faits lus sur la source, re-score
+                                      (--overwrite pour corriger un fait déjà posé)
   opportunity:stage <id> <STAGE> [--note "..."]
   match:all [<id>]                    Re-score tout (ou une seule opportunité)
 
@@ -889,6 +994,7 @@ Profil et rapports
   profile:set-market <marché> --floor <n> --target <n> --source <url>
   report:daily [--days N]
   stats
+  runs [--limit N]                    Quand l'agent planifié a tourné, et son prochain lancement
 
 Le JSON peut aussi arriver sur stdin, ou via --json '<...>'.`)
 }
@@ -898,6 +1004,7 @@ const COMMANDS: Record<string, () => void | Promise<void>> = {
   'opportunity:import': opportunityImport,
   'opportunity:list': opportunityList,
   'opportunity:show': opportunityShow,
+  'opportunity:enrich': opportunityEnrich,
   'opportunity:stage': opportunityStage,
   'match:all': matchAll,
   'match:one': matchAll,
@@ -920,6 +1027,7 @@ const COMMANDS: Record<string, () => void | Promise<void>> = {
   'profile:set-market': profileSetMarket,
   'report:daily': reportDaily,
   stats,
+  runs,
   help,
 }
 

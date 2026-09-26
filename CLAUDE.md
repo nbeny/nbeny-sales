@@ -37,12 +37,13 @@ node src/cli.ts opportunity:add --file x.json
 node src/cli.ts opportunity:list --priority HIGH
 node src/cli.ts match:all
 node src/cli.ts report:daily
+node src/cli.ts runs                       # lancements planifiés (tâche Windows nbeny-sales-daily)
 node src/cli.ts outreach:set-recipient MSG-x --email a@b.fr --source https://...
 node src/cli.ts outreach:edit MSG-x --file x.json    # corrige, annule l'approbation
 node src/cli.ts outreach:approve MSG-x        # Nicolas, au clavier
 node src/cli.ts outreach:clear-sending MSG-x  # Nicolas, au clavier
 node src/cli.ts outreach:send MSG-x --dry-run # puis sans --dry-run
-node --test "test/*.test.ts"               # 193 tests, sans dépendance
+node --test "test/*.test.ts"               # 199 tests, sans dépendance
 ```
 
 ## Slash commands

@@ -10,3 +10,5 @@ data/*.json
 data/history/
 data/reports/
 .tmp/
+
+logs/
