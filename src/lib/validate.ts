@@ -129,6 +129,11 @@ export function validateOutreachInput(input: Record<string, unknown>): string[] 
   if (typeof input.body === 'string' && input.body.trim().length < 40) {
     issues.push('`body` est trop court pour être un vrai message.')
   }
+  for (const field of ['subject', 'body']) {
+    const value = input[field]
+    const hidden = typeof value === 'string' ? hiddenIssue('`' + field + '`', value) : undefined
+    if (hidden) issues.push(hidden)
+  }
   if (input.status !== undefined && input.status !== 'DRAFT') {
     issues.push('Un message est toujours créé en `DRAFT`. Seul Nicolas le fait avancer : `outreach:approve` puis `outreach:send`, ou `outreach:mark-sent` pour un envoi fait à la main.')
   }
@@ -170,15 +175,41 @@ export function findPlaceholders(text: string): string[] {
   return text.match(/\[[^\]\n]{1,160}\]/g) ?? []
 }
 
+/**
+ * Caractères qu'on ne voit pas en relisant : contrôles C0 (sauf \n et \t, donc
+ * \r compris), DEL et C1, largeur nulle, contrôles bidirectionnels, BOM. Ils
+ * peuvent faire lire à Nicolas autre chose que ce qui part.
+ */
+const HIDDEN = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/g
+
+/** Caractères invisibles ou de contrôle présents, distincts, au format `U+XXXX`, dans l'ordre d'apparition. */
+export function findHiddenCharacters(text: string): string[] {
+  const found = new Set<string>()
+  for (const c of text.match(HIDDEN) ?? []) {
+    found.add('U+' + c.charCodeAt(0).toString(16).toUpperCase().padStart(4, '0'))
+  }
+  return [...found]
+}
+
+function hiddenIssue(label: string, text: string): string | undefined {
+  const hidden = findHiddenCharacters(text)
+  return hidden.length ? label + ' contient des caractères invisibles ou de contrôle : ' + hidden.join(', ') : undefined
+}
+
 const EMAIL = /^[^\s@<>()",;:]+@[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}$/i
 
-export function validateRecipient(input: { email?: string; sourceUrl?: string }): string[] {
+export function validateRecipient(input: { email?: string; sourceUrl?: string; name?: string }): string[] {
   const issues: string[] = []
   if (!input.email || !EMAIL.test(input.email.trim())) {
     issues.push('`--email` doit être une adresse email complète.')
   }
   if (!isHttpUrl(input.sourceUrl)) {
     issues.push('`--source` doit être l\'URL publique où cette adresse a été lue. Une adresse reconstituée (prenom.nom@…) n\'est pas une adresse lue.')
+  }
+  if (input.name !== undefined) {
+    const hidden = hiddenIssue('`--name`', input.name)
+    if (hidden) issues.push(hidden)
+    if (input.name.startsWith('-')) issues.push('`--name` ne peut pas commencer par un tiret : la valeur de --name manque-t-elle ?')
   }
   return issues
 }

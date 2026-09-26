@@ -219,6 +219,12 @@ describe('validation — messages de prospection', () => {
     assert.ok(issues.some((i) => i.includes('sourceUrl')))
   })
 
+  test('refuse les caractères invisibles ou de contrôle dans le corps et l\'objet', () => {
+    const issues = validateOutreachInput({ ...base, subject: base.subject + '\u200b', body: base.body + '\u001b[0m' })
+    assert.ok(issues.includes('`subject` contient des caractères invisibles ou de contrôle : U+200B'))
+    assert.ok(issues.includes('`body` contient des caractères invisibles ou de contrôle : U+001B'))
+  })
+
   test('signale les formules génériques', () => {
     const problems = lintOutreachBody('Bonjour, je suis passionné par votre entreprise et je me permets de vous contacter.')
     assert.equal(problems.length, 2)

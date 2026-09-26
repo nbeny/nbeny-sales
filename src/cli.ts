@@ -14,6 +14,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { createInterface } from 'node:readline/promises'
 import { setTimeout as pause } from 'node:timers/promises'
+import { closeSync, openSync, unlinkSync, writeSync } from 'node:fs'
 import {
   appendHistory,
   readHistory,
@@ -38,7 +39,7 @@ import { approvalHash, approvalIssues, orphanSendings, sendIssues, sentCountOn, 
 import { buildMessage } from './lib/mime.ts'
 import { sendMail, SmtpError } from './lib/smtp.ts'
 import { withTunnel } from './lib/tunnel.ts'
-import { readSmtpPassword, type MailConfig } from './lib/mail-config.ts'
+import { readSmtpPassword, SECRET_PATH, type MailConfig } from './lib/mail-config.ts'
 import type { Followup, FollowupStatus, Opportunity, OutreachMessage, Profile, StageName } from './lib/types.ts'
 
 const args = process.argv.slice(2)
@@ -273,8 +274,15 @@ function matchAll(): void {
   console.log(count + ' opportunité(s) re-scorée(s).')
 }
 
+/** Les fins de ligne Windows ne sont pas des caractères cachés : on les ramène à \n avant de valider. */
+function normalizeNewlines(value: unknown): unknown {
+  return typeof value === 'string' ? value.replace(/\r\n/g, '\n') : value
+}
+
 function outreachAdd(): void {
   const input = payload()
+  input.subject = normalizeNewlines(input.subject)
+  input.body = normalizeNewlines(input.body)
   assertValidOutreach(input)
   const lint = lintOutreachBody(String(input.body))
   if (lint.length && !has('force')) {
@@ -351,12 +359,18 @@ function resetApproval(m: OutreachMessage): boolean {
 }
 
 /**
- * Verrou dur : seules les commandes lancées depuis un terminal par Nicolas
- * passent. Un agent n'a pas de TTY, quelles que soient ses permissions.
+ * Barrière contre un agent qui appelle la CLI normalement : il n'a pas de
+ * terminal interactif, donc pas de confirmation. Ce n'est pas une barrière
+ * contre quelqu'un capable d'exécuter du code arbitraire : les règles de
+ * permission de .claude/settings.json sont l'autre barrière.
  */
 async function confirmByTyping(expected: string, prompt: string): Promise<boolean> {
-  if (!process.stdin.isTTY) {
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
     console.error('Cette commande demande une confirmation au clavier : elle se lance depuis un terminal, par Nicolas, jamais par un agent.')
+    return false
+  }
+  if (process.execArgv.length > 0 || process.env.NODE_OPTIONS) {
+    console.error('Confirmation refusée : Node a été lancé avec des options (--import, NODE_OPTIONS…).')
     return false
   }
   const rl = createInterface({ input: process.stdin, output: process.stdout })
@@ -369,14 +383,15 @@ async function confirmByTyping(expected: string, prompt: string): Promise<boolea
 
 function outreachSetRecipient(): void {
   const id = positional(0)
+  const email = flag('email')?.trim()
+  const sourceUrl = flag('source')
+  const name = flag('name')?.trim() || undefined
+  // Lecture, vérification et écriture d'un seul tenant, sans attente entre les deux.
   const rows = readCollection<OutreachMessage>('outreach')
   const m = findOutreach(rows, id)
   if (m.status === 'SENT') { console.error(m.id + ' est déjà envoyé : son destinataire ne change plus.'); process.exit(2) }
-  const email = flag('email')?.trim()
-  const sourceUrl = flag('source')
-  const issues = validateRecipient({ email, sourceUrl })
+  const issues = validateRecipient({ email, sourceUrl, name })
   if (issues.length) throw new ValidationError(issues)
-  const name = flag('name')
   m.to = { email: email!, ...(name ? { name } : {}), sourceUrl: sourceUrl!, readAt: new Date().toISOString() }
   const wasApproved = resetApproval(m)
   writeCollection('outreach', rows)
@@ -387,11 +402,12 @@ function outreachSetRecipient(): void {
 function outreachEdit(): void {
   const id = positional(0)
   const input = payload()
+  // Lecture, vérification et écriture d'un seul tenant, sans attente entre les deux.
   const rows = readCollection<OutreachMessage>('outreach')
   const m = findOutreach(rows, id)
   if (m.status === 'SENT') { console.error(m.id + ' est déjà envoyé : il ne se modifie plus.'); process.exit(2) }
-  const subject = input.subject === undefined ? m.subject : String(input.subject)
-  const body = input.body === undefined ? m.body : String(input.body)
+  const subject = input.subject === undefined ? m.subject : String(normalizeNewlines(String(input.subject)))
+  const body = input.body === undefined ? m.body : String(normalizeNewlines(String(input.body)))
   assertValidOutreach({ companyName: m.companyName, subject, body, reason: m.reason, sourceUrl: m.sourceUrl, channel: m.channel })
   const lint = lintOutreachBody(body)
   if (lint.length) {
@@ -410,27 +426,41 @@ function outreachEdit(): void {
 async function outreachApprove(): Promise<void> {
   const id = positional(0)
   const config = readConfig<MailConfig>('mail')
-  const rows = readCollection<OutreachMessage>('outreach')
-  const m = findOutreach(rows, id)
-  const opportunity = readCollection<Opportunity>('opportunities').find((o) => o.id === m.opportunityId)
-  const issues = approvalIssues(m, opportunity)
+  const displayed = findOutreach(readCollection<OutreachMessage>('outreach'), id)
+  const issuesFor = (m: OutreachMessage) =>
+    approvalIssues(m, readCollection<Opportunity>('opportunities').find((o) => o.id === m.opportunityId))
+  const issues = issuesFor(displayed)
   if (issues.length) {
     console.error('Approbation refusée :')
     for (const i of issues) console.error('  - ' + i)
     process.exit(2)
   }
-  const to = m.to!
+  const to = displayed.to!
   console.log([
     'De     : ' + config.from.name + ' <' + config.from.email + '>',
     'À      : ' + (to.name ? to.name + ' <' + to.email + '>' : to.email),
     'Adresse lue sur : ' + to.sourceUrl,
-    'Objet  : ' + m.subject,
+    'Objet  : ' + displayed.subject,
     '',
-    m.body,
+    displayed.body,
     '',
   ].join('\n'))
-  if (!(await confirmByTyping(m.id, 'Tape ' + m.id + ' pour approuver ce message tel quel : '))) {
+  const shownHash = approvalHash(displayed)
+  if (!(await confirmByTyping(displayed.id, 'Tape ' + displayed.id + ' pour approuver ce message tel quel : '))) {
     console.log('Non approuvé.')
+    process.exit(2)
+  }
+  // La confirmation a pu prendre du temps : on relit la base et on n'approuve que ce qui a été affiché.
+  const rows = readCollection<OutreachMessage>('outreach')
+  const m = rows.find((r) => r.id === displayed.id)
+  if (!m || m.status === 'SENT' || approvalHash(m) !== shownHash) {
+    console.error('Le message a changé pendant la confirmation : rien n\'est approuvé.')
+    process.exit(2)
+  }
+  const freshIssues = issuesFor(m)
+  if (freshIssues.length) {
+    console.error('Approbation refusée :')
+    for (const i of freshIssues) console.error('  - ' + i)
     process.exit(2)
   }
   m.status = 'APPROVED'
@@ -444,7 +474,8 @@ async function outreachApprove(): Promise<void> {
 async function outreachClearSending(): Promise<void> {
   const id = positional(0)
   const m = findOutreach(readCollection<OutreachMessage>('outreach'), id)
-  if (!orphanSendings(readHistory() as HistoryEvent[]).includes(m.id)) {
+  const isOrphan = () => orphanSendings(readHistory() as HistoryEvent[]).includes(m.id)
+  if (!isOrphan()) {
     console.log('Aucun envoi interrompu pour ' + m.id + '.')
     return
   }
@@ -453,112 +484,197 @@ async function outreachClearSending(): Promise<void> {
     console.log('Rien n\'a changé.')
     process.exit(2)
   }
+  // Relu après la confirmation : un mark-sent a pu être enregistré entre-temps.
+  if (!isOrphan()) {
+    console.log('L\'envoi interrompu de ' + m.id + ' a été réglé pendant la confirmation : rien n\'a changé.')
+    return
+  }
   appendHistory({ event: 'outreach:clear-sending', id: m.id })
   console.log(m.id + ' peut de nouveau être envoyé.')
 }
 
+/**
+ * Verrou exclusif pour toute la durée d'un envoi : deux `outreach:send`
+ * simultanés liraient le même état et pourraient envoyer deux fois.
+ * `.json` pour que `data/*.json` l'ignore dans git.
+ */
+function acquireSendLock(): () => void {
+  const path = join(DATA_DIR, 'send.lock.json')
+  let fd: number
+  try {
+    fd = openSync(path, 'wx')
+  } catch (error) {
+    if ((error as { code?: string }).code !== 'EEXIST') throw error
+    let content = ''
+    try { content = readFileSync(path, 'utf8').trim() } catch { /* supprimé entre-temps */ }
+    console.error('Un envoi est déjà en cours (verrou ' + path + ', ' + content + '). S\'il n\'y en a pas, supprime ce fichier.')
+    process.exit(2)
+  }
+  try {
+    writeSync(fd, JSON.stringify({ pid: process.pid, at: new Date().toISOString() }) + '\n')
+  } finally {
+    closeSync(fd)
+  }
+  return () => {
+    try { unlinkSync(path) } catch { /* déjà supprimé */ }
+  }
+}
+
 async function outreachSend(): Promise<void> {
   const config = readConfig<MailConfig>('mail')
-  const rows = readCollection<OutreachMessage>('outreach')
-  const opportunities = readCollection<Opportunity>('opportunities')
+  const forceRecipient = has('force-recipient')
+  const initial = readCollection<OutreachMessage>('outreach')
   const ids = has('all-approved')
-    ? rows.filter((r) => r.status === 'APPROVED').map((r) => r.id)
+    ? initial.filter((r) => r.status === 'APPROVED').map((r) => r.id)
     : [positional(0)].filter((id): id is string => !!id)
   if (!ids.length) {
     console.log(has('all-approved') ? 'Aucun message APPROVED en attente.' : 'Usage : outreach:send <id> | --all-approved [--dry-run] [--force-recipient]')
     return
   }
 
-  const now = new Date()
-  const events = readHistory() as HistoryEvent[]
-  const ready: OutreachMessage[] = []
-  // Le délai entre deux messages à la même adresse vaut aussi à l'intérieur d'un lot.
-  const batchRecipients = new Set<string>()
-  for (const id of ids) {
-    const m = rows.find((r) => r.id === id)
-    if (!m) { console.error('Message introuvable : ' + id); process.exitCode = 1; continue }
-    const opportunity = opportunities.find((o) => o.id === m.opportunityId)
-    const issues = sendIssues(m, { opportunity, events, outreach: rows, now, config, forceRecipient: has('force-recipient') })
-    const recipientKey = m.to?.email.trim().toLowerCase()
-    if (recipientKey && batchRecipients.has(recipientKey) && !has('force-recipient')) {
-      issues.push(m.to!.email + ' reçoit déjà un autre message de ce lot. --force-recipient pour passer outre.')
-    }
-    if (issues.length) {
-      console.error(m.id + ' ne part pas :')
-      for (const i of issues) console.error('  - ' + i)
-      process.exitCode = 2
-      continue
-    }
-    if (recipientKey) batchRecipients.add(recipientKey)
-    ready.push(m)
-  }
-
-  const remaining = Math.max(0, config.dailyCap - sentCountOn(events, now.toISOString().slice(0, 10)))
-  if (ready.length > remaining) {
-    console.log('Plafond de ' + config.dailyCap + ' envois par jour : ' + ready.slice(remaining).map((m) => m.id).join(', ') + ' attendront demain (toujours APPROVED).')
-    ready.splice(remaining)
-  }
-  if (!ready.length) return
-
-  const build = (m: OutreachMessage) => buildMessage({ from: config.from, to: m.to!, subject: m.subject, body: m.body, date: new Date() })
-  const recipients = (m: OutreachMessage) => [m.to!.email, ...(config.bccSelf ? [config.from.email] : [])]
-
-  if (has('dry-run')) {
-    for (const m of ready) {
-      console.log('=== ' + m.id + ' — enveloppe : ' + recipients(m).join(', ') + ' — rien n\'est envoyé (--dry-run)')
-      console.log(build(m).raw)
-    }
-    return
-  }
-
-  const pass = readSmtpPassword()
-  await withTunnel({ jumpHost: config.tunnel.jumpHost, target: config.smtp.host, targetPort: config.smtp.port }, async (localPort) => {
-    for (const [index, m] of ready.entries()) {
-      if (index > 0) {
-        console.log('Pause de ' + config.minDelaySeconds + ' s avant le suivant…')
-        await pause(config.minDelaySeconds * 1000)
+  const release = has('dry-run') ? () => undefined : acquireSendLock()
+  try {
+    // Premier tri, sous le verrou. Chaque message est revérifié juste avant son envoi.
+    const rows = readCollection<OutreachMessage>('outreach')
+    const opportunities = readCollection<Opportunity>('opportunities')
+    const now = new Date()
+    const events = readHistory() as HistoryEvent[]
+    const ready: OutreachMessage[] = []
+    // Le délai entre deux messages à la même adresse vaut aussi à l'intérieur d'un lot.
+    const batchRecipients = new Set<string>()
+    for (const id of ids) {
+      const m = rows.find((r) => r.id === id)
+      if (!m) { console.error('Message introuvable : ' + id); process.exitCode = 1; continue }
+      const opportunity = opportunities.find((o) => o.id === m.opportunityId)
+      const issues = sendIssues(m, { opportunity, events, outreach: rows, now, config, forceRecipient })
+      const recipientKey = m.to?.email.trim().toLowerCase()
+      if (recipientKey && batchRecipients.has(recipientKey) && !forceRecipient) {
+        issues.push(m.to!.email + ' reçoit déjà un autre message de ce lot. --force-recipient pour passer outre.')
       }
-      const mail = build(m)
-      let dataStarted = false
-      try {
-        await sendMail({
-          host: '127.0.0.1',
-          port: localPort,
-          servername: config.smtp.servername,
-          tls: true,
-          user: config.from.email,
-          pass,
-          from: config.from.email,
-          rcpt: recipients(m),
-          raw: mail.raw,
-          onBeforeData: () => {
-            dataStarted = true
-            appendHistory({ event: 'outreach:sending', id: m.id, to: m.to!.email, messageId: mail.messageId })
-          },
-        })
-        const fresh = readCollection<OutreachMessage>('outreach')
-        const saved = fresh.find((r) => r.id === m.id)!
-        saved.status = 'SENT'
-        saved.sentAt = new Date().toISOString()
-        saved.messageId = mail.messageId
-        writeCollection('outreach', fresh)
-        appendHistory({ event: 'outreach:sent', id: m.id, to: m.to!.email, messageId: mail.messageId })
-        console.log('✅ ' + m.id + ' envoyé à ' + m.to!.email + ' ' + mail.messageId)
-      } catch (error) {
-        const reason = error instanceof Error ? error.message : String(error)
-        // Refus explicite du serveur, ou échec avant DATA : on sait que rien n'est parti.
-        const certain = !dataStarted || (error instanceof SmtpError && error.code >= 400)
-        appendHistory({ event: certain ? 'outreach:send-failed' : 'outreach:send-uncertain', id: m.id, error: reason })
-        console.error('❌ ' + m.id + ' : ' + reason)
-        if (!certain) console.error('   Coupure pendant la transmission : ' + m.id + ' reste bloqué jusqu\'à vérification du dossier Envoyés.')
-        process.exitCode = 1
-        if (!(error instanceof SmtpError && error.command.startsWith('RCPT TO'))) {
-          console.error('Lot arrêté.')
+      if (issues.length) {
+        console.error(m.id + ' ne part pas :')
+        for (const i of issues) console.error('  - ' + i)
+        process.exitCode = 2
+        continue
+      }
+      if (recipientKey) batchRecipients.add(recipientKey)
+      ready.push(m)
+    }
+
+    const capMessage = (waiting: OutreachMessage[]) =>
+      'Plafond de ' + config.dailyCap + ' envois par jour : ' + waiting.map((m) => m.id).join(', ') + ' attendront demain (toujours APPROVED).'
+    const remaining = Math.max(0, config.dailyCap - sentCountOn(events, now.toISOString().slice(0, 10)))
+    if (ready.length > remaining) {
+      console.log(capMessage(ready.slice(remaining)))
+      ready.splice(remaining)
+    }
+    if (!ready.length) return
+
+    const build = (m: OutreachMessage) => buildMessage({ from: config.from, to: m.to!, subject: m.subject, body: m.body, date: new Date() })
+    const recipients = (m: OutreachMessage) => [m.to!.email, ...(config.bccSelf ? [config.from.email] : [])]
+
+    if (has('dry-run')) {
+      for (const m of ready) {
+        console.log('=== ' + m.id + ' — enveloppe : ' + recipients(m).join(', ') + ' — rien n\'est envoyé (--dry-run)')
+        console.log(build(m).raw)
+      }
+      return
+    }
+
+    // Le chemin du fichier secret peut être remplacé (tests) ; le mot de passe, lui, n'est jamais dans l'environnement.
+    const pass = readSmtpPassword(process.env.NBENY_SALES_SMTP_ENV ?? SECRET_PATH)
+    const tls = config.smtp.tls ?? true
+    const attempted = new Set<string>()
+
+    const sendAll = async (host: string, port: number): Promise<void> => {
+      for (const [index, planned] of ready.entries()) {
+        attempted.add(planned.id)
+        if (index > 0) {
+          console.log('Pause de ' + config.minDelaySeconds + ' s avant le suivant…')
+          await pause(config.minDelaySeconds * 1000)
+        }
+        // Tout est relu : un outreach:edit, un mark-sent ou le message précédent a pu changer la base pendant la pause.
+        const freshRows = readCollection<OutreachMessage>('outreach')
+        const freshEvents = readHistory() as HistoryEvent[]
+        const freshNow = new Date()
+        if (sentCountOn(freshEvents, freshNow.toISOString().slice(0, 10)) >= config.dailyCap) {
+          console.log(capMessage(ready.slice(index)))
           break
+        }
+        const m = freshRows.find((r) => r.id === planned.id)
+        if (!m) { console.error('Message introuvable : ' + planned.id); process.exitCode = 1; continue }
+        const opportunity = readCollection<Opportunity>('opportunities').find((o) => o.id === m.opportunityId)
+        const issues = sendIssues(m, { opportunity, events: freshEvents, outreach: freshRows, now: freshNow, config, forceRecipient })
+        if (issues.length) {
+          console.error(m.id + ' ne part pas :')
+          for (const i of issues) console.error('  - ' + i)
+          process.exitCode = 2
+          continue
+        }
+        const to = m.to!
+        const mail = build(m)
+        let dataStarted = false
+        try {
+          await sendMail({
+            host,
+            port,
+            servername: config.smtp.servername,
+            tls,
+            user: config.from.email,
+            pass,
+            from: config.from.email,
+            rcpt: recipients(m),
+            raw: mail.raw,
+            onBeforeData: () => {
+              dataStarted = true
+              appendHistory({ event: 'outreach:sending', id: m.id, to: to.email, messageId: mail.messageId })
+            },
+          })
+          const saved = readCollection<OutreachMessage>('outreach')
+          const row = saved.find((r) => r.id === m.id)!
+          row.status = 'SENT'
+          row.sentAt = new Date().toISOString()
+          row.messageId = mail.messageId
+          writeCollection('outreach', saved)
+          appendHistory({ event: 'outreach:sent', id: m.id, to: to.email, messageId: mail.messageId })
+          console.log('✅ ' + m.id + ' envoyé à ' + to.email + ' ' + mail.messageId)
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : String(error)
+          // Refus explicite du serveur, ou échec avant DATA : on sait que rien n'est parti.
+          const certain = !dataStarted || (error instanceof SmtpError && error.code >= 400)
+          appendHistory({ event: certain ? 'outreach:send-failed' : 'outreach:send-uncertain', id: m.id, error: reason })
+          console.error('❌ ' + m.id + ' : ' + reason)
+          if (!certain) console.error('   Coupure pendant la transmission : ' + m.id + ' reste bloqué jusqu\'à vérification du dossier Envoyés.')
+          process.exitCode = 1
+          // Seul le refus explicite de CE destinataire laisse la connexion au serveur saine pour les suivants.
+          const recipientRefused = error instanceof SmtpError && error.code >= 400 && error.command === 'RCPT TO:<' + to.email + '>'
+          if (!recipientRefused) {
+            console.error('Lot arrêté.')
+            break
+          }
         }
       }
     }
-  })
+
+    try {
+      if (config.tunnel) {
+        await withTunnel({ jumpHost: config.tunnel.jumpHost, target: config.smtp.host, targetPort: config.smtp.port }, (localPort) =>
+          sendAll('127.0.0.1', localPort),
+        )
+      } else {
+        await sendAll(config.smtp.host, config.smtp.port)
+      }
+    } catch (error) {
+      // Tunnel qui ne s'ouvre pas (ou erreur hors d'un envoi) : les messages jamais tentés sont notés comme non partis.
+      const reason = error instanceof Error ? error.message : String(error)
+      for (const m of ready) {
+        if (!attempted.has(m.id)) appendHistory({ event: 'outreach:send-failed', id: m.id, error: reason })
+      }
+      throw error
+    }
+  } finally {
+    release()
+  }
 }
 
 function followupAdd(): void {

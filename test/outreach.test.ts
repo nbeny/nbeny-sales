@@ -1,7 +1,7 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { findPlaceholders, validateRecipient } from '../src/lib/validate.ts'
+import { findHiddenCharacters, findPlaceholders, validateRecipient } from '../src/lib/validate.ts'
 import { approvalHash, approvalIssues, sendIssues, orphanSendings, sentCountOn, type HistoryEvent, type SendContext } from '../src/lib/outreach.ts'
 import type { MailConfig } from '../src/lib/mail-config.ts'
 import type { Opportunity, OutreachMessage } from '../src/lib/types.ts'
@@ -209,5 +209,74 @@ describe('sentCountOn', () => {
       ev('outreach:sent', 'MSG-3', '2026-09-28T08:05:01Z'),
     ]
     assert.equal(sentCountOn(events, '2026-09-28'), 2)
+  })
+})
+
+describe('findHiddenCharacters', () => {
+  test('texte ordinaire, accents, retours à la ligne et tabulations : rien', () => {
+    assert.deepEqual(findHiddenCharacters('Bonjour Élodie,\n\tçà et là — « merci ».'), [])
+  })
+
+  test('CR, échappement ANSI, DEL et C1 : signalés une seule fois chacun, dans l\'ordre', () => {
+    assert.deepEqual(findHiddenCharacters('a\r\nb\u001b[31m\u001bc\u007f\u0085\r'), ['U+000D', 'U+001B', 'U+007F', 'U+0085'])
+  })
+
+  test('largeur nulle, contrôles bidirectionnels, BOM : signalés', () => {
+    assert.deepEqual(
+      findHiddenCharacters('x\u200by\u200fz\u202ew\u2060v\u2064u\u2066t\u2069s\ufeff'),
+      ['U+200B', 'U+200F', 'U+202E', 'U+2060', 'U+2064', 'U+2066', 'U+2069', 'U+FEFF'],
+    )
+  })
+
+  test('NUL : signalé', () => {
+    assert.deepEqual(findHiddenCharacters('a\u0000b'), ['U+0000'])
+  })
+})
+
+describe('validateRecipient — nom', () => {
+  const base = { email: 'rh@acme.example', sourceUrl: 'https://acme.example/contact' }
+
+  test('nom ordinaire : accepté', () => {
+    assert.deepEqual(validateRecipient({ ...base, name: 'Élodie Martin' }), [])
+  })
+
+  test('nom avec caractère invisible : refusé', () => {
+    const issues = validateRecipient({ ...base, name: 'Élodie\u202eMartin' })
+    assert.equal(issues.length, 1)
+    assert.match(issues[0], /--name.*U\+202E/)
+  })
+
+  test('nom commençant par un tiret (valeur de --name oubliée) : refusé', () => {
+    const issues = validateRecipient({ ...base, name: '--source' })
+    assert.equal(issues.length, 1)
+    assert.match(issues[0], /--name/)
+  })
+})
+
+describe('caractères invisibles dans un message', () => {
+  test('approbation refusée si le corps contient un caractère de contrôle', () => {
+    const issues = approvalIssues(draft({ body: 'Bonjour,\u001b[2J un message assez long pour passer la validation.' }), opportunity('OUTREACH_READY'))
+    assert.ok(issues.some((i) => i.includes('U+001B')))
+  })
+
+  test('envoi refusé si l\'objet contient un caractère bidirectionnel, même approuvé avec cette empreinte', () => {
+    const m = approved({ subject: 'Votre annonce\u202e Node.js' })
+    assert.ok(sendIssues(m, ctx()).some((i) => i.includes('U+202E')))
+  })
+})
+
+describe('sendIssues — journal', () => {
+  test('outreach:sent déjà journalisé pour ce message : refusé', () => {
+    const issues = sendIssues(approved(), ctx({ events: [ev('outreach:sending'), ev('outreach:sent')] }))
+    assert.ok(issues.includes('MSG-2026-0001 a déjà été envoyé (journal) : il ne repart pas.'))
+  })
+
+  test('outreach:mark-sent journalisé pour ce message : refusé', () => {
+    const issues = sendIssues(approved(), ctx({ events: [ev('outreach:mark-sent')] }))
+    assert.ok(issues.includes('MSG-2026-0001 a déjà été envoyé (journal) : il ne repart pas.'))
+  })
+
+  test('envoi journalisé pour un autre message : sans effet', () => {
+    assert.deepEqual(sendIssues(approved(), ctx({ events: [ev('outreach:sent', 'MSG-2026-0009')] })), [])
   })
 })

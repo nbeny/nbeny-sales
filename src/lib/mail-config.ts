@@ -11,8 +11,10 @@ export interface MailConfig {
   from: { email: string; name: string }
   /** Copie cachée à l'expéditeur : la trace de l'envoi dans Mailcow. */
   bccSelf: boolean
-  smtp: { host: string; port: number; servername: string }
-  tunnel: { jumpHost: string }
+  /** `tls` absent : vrai. Seuls les tests parlent en clair à un faux serveur local. */
+  smtp: { host: string; port: number; servername: string; tls?: boolean }
+  /** Absent : connexion directe à smtp.host:port, sans tunnel SSH. */
+  tunnel?: { jumpHost: string }
   dailyCap: number
   minDelaySeconds: number
   recipientCooldownDays: number

@@ -4,7 +4,7 @@
  */
 import { createHash } from 'node:crypto'
 import { TERMINAL_STAGES, type Opportunity, type OutreachMessage } from './types.ts'
-import { findPlaceholders } from './validate.ts'
+import { findHiddenCharacters, findPlaceholders } from './validate.ts'
 import type { MailConfig } from './mail-config.ts'
 
 export interface HistoryEvent {
@@ -52,6 +52,10 @@ function commonIssues(m: OutreachMessage, opportunity: Opportunity | undefined):
   if (markers.length) {
     issues.push('Marqueurs à compléter : ' + markers.join(', ') + '. Corrige avec outreach:edit ' + m.id + '.')
   }
+  const hidden = findHiddenCharacters(m.subject + '\n' + m.body)
+  if (hidden.length) {
+    issues.push('Caractères invisibles ou de contrôle dans l\'objet ou le corps : ' + hidden.join(', ') + '. Corrige avec outreach:edit ' + m.id + '.')
+  }
   return issues
 }
 
@@ -95,6 +99,10 @@ export function sendIssues(m: OutreachMessage, ctx: SendContext): string[] {
   issues.push(...commonIssues(m, ctx.opportunity))
   if (m.status === 'APPROVED' && m.approvedHash !== approvalHash(m)) {
     issues.push('Le message a changé depuis son approbation : relis-le et réapprouve-le (outreach:approve ' + m.id + ').')
+  }
+  // Le journal fait foi même si data/outreach.json a été réécrit par une copie périmée.
+  if (ctx.events.some((e) => e.id === m.id && (e.event === 'outreach:sent' || e.event === 'outreach:mark-sent'))) {
+    issues.push(m.id + ' a déjà été envoyé (journal) : il ne repart pas.')
   }
   if (orphanSendings(ctx.events).includes(m.id)) {
     issues.push(

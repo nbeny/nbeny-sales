@@ -8,8 +8,9 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 export const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
-export const DATA_DIR = join(ROOT, 'data')
-export const CONFIG_DIR = join(ROOT, 'config')
+// Les variables d'environnement ne servent qu'aux tests, pour ne jamais toucher à la vraie base.
+export const DATA_DIR = process.env.NBENY_SALES_DATA_DIR || join(ROOT, 'data')
+export const CONFIG_DIR = process.env.NBENY_SALES_CONFIG_DIR || join(ROOT, 'config')
 export const REPORTS_DIR = join(DATA_DIR, 'reports')
 
 export function readJson<T>(path: string, fallback: T): T {
