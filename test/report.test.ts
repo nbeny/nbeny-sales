@@ -23,7 +23,7 @@ function message(over: Partial<OutreachMessage>): OutreachMessage {
 
 const TO = { email: 'rh@acme.example', sourceUrl: 'https://acme.example/contact', readAt: '2026-09-25T00:00:00Z' }
 
-function report(outreach: OutreachMessage[], interruptedSends: string[] = []): string {
+function report(outreach: OutreachMessage[], interruptedSends: string[] = [], sentEvidence?: string): string {
   const input: ReportInput = {
     date: '2026-09-28T08:00:00Z',
     opportunities: [],
@@ -32,8 +32,17 @@ function report(outreach: OutreachMessage[], interruptedSends: string[] = []): s
     companies: [],
     market: [],
     interruptedSends,
+    sentEvidence,
   }
   return buildDailyReport(input)
+}
+
+/** Ce que les sections ont à dire d'un message : le texte entre son titre et le titre suivant. */
+function sectionOf(md: string, title: string): string {
+  const start = md.indexOf('## ' + title)
+  assert.ok(start >= 0, 'section absente : ' + title)
+  const next = md.indexOf('\n## ', start + 1)
+  return md.slice(start, next < 0 ? undefined : next)
 }
 
 describe('rapport — messages', () => {
@@ -56,12 +65,27 @@ describe('rapport — messages', () => {
     assert.match(md, /outreach:send MSG-2026-0003 --dry-run/)
   })
 
-  test('envoi interrompu : vérifier la copie cachée, puis mark-sent ou clear-sending', () => {
+  test('envoi interrompu : vérifier la preuve fournie par l\'appelant, puis mark-sent ou clear-sending', () => {
+    const evidence = 'la copie cachée dans la boîte de réception de envoi@exemple.test (ou le journal Postfix)'
+    const md = report([message({ id: 'MSG-2026-0004', status: 'APPROVED', to: TO })], ['MSG-2026-0004'], evidence)
+    const interrupted = sectionOf(md, '⚠️ Envois interrompus')
+    assert.ok(interrupted.includes(evidence), interrupted)
+    assert.match(interrupted, /outreach:mark-sent MSG-2026-0004/)
+    assert.match(interrupted, /outreach:clear-sending MSG-2026-0004/)
+  })
+
+  test('sans preuve fournie : texte générique, aucune adresse écrite en dur', () => {
     const md = report([message({ id: 'MSG-2026-0004', status: 'APPROVED', to: TO })], ['MSG-2026-0004'])
-    assert.match(md, /Envois interrompus/)
-    assert.match(md, /copie cachée dans la boîte de réception de nicolas@urbanlink\.fr \(ou le journal Postfix\)/)
-    assert.match(md, /outreach:mark-sent MSG-2026-0004/)
-    assert.match(md, /outreach:clear-sending MSG-2026-0004/)
+    assert.ok(sectionOf(md, '⚠️ Envois interrompus').includes('la copie cachée de l\'expéditeur'))
+    assert.doesNotMatch(md, /urbanlink/)
+  })
+
+  test('message approuvé mais interrompu : seulement dans les envois interrompus, pas compté en attente', () => {
+    const md = report([message({ id: 'MSG-2026-0007', status: 'APPROVED', to: TO })], ['MSG-2026-0007'])
+    assert.ok(!sectionOf(md, '📤 Approuvés, en attente d\'envoi').includes('MSG-2026-0007'))
+    assert.ok(sectionOf(md, '⚠️ Envois interrompus').includes('MSG-2026-0007'))
+    assert.match(md, /\| Messages approuvés en attente \| 0 \|/)
+    assert.match(md, /\| Envois interrompus \| 1 \|/)
   })
 
   test('plus aucune consigne d\'envoi à la main pour un email', () => {
@@ -86,7 +110,8 @@ describe('rapport — messages', () => {
     )
     assert.match(md, /\| Messages en brouillon \| 2 \|/)
     assert.match(md, /\| Brouillons sans destinataire \| 1 \|/)
-    assert.match(md, /\| Messages approuvés en attente \| 1 \|/)
+    // MSG-3 est APPROVED mais interrompu : il n'est plus « en attente ».
+    assert.match(md, /\| Messages approuvés en attente \| 0 \|/)
     assert.match(md, /\| Messages envoyés \| 1 \|/)
     assert.match(md, /\| Envois interrompus \| 1 \|/)
   })

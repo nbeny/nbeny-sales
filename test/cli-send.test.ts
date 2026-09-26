@@ -397,3 +397,31 @@ describe('outreach:show, outreach:list, stats (intégration, lecture seule)', ()
     assert.match(run.stdout, /1 envoi interrompu/)
   })
 })
+
+describe('report:daily (intégration, base temporaire)', () => {
+  const interruptedEnv = () => {
+    const env = setup(2525)
+    // L'opportunité factice de setup() n'a pas de faits : le rapport, lui, les lit.
+    writeFileSync(join(env.dataDir, 'opportunities.json'), '[]')
+    writeOutreach(env, [approved('MSG-2026-0001', 'rh@acme.example')])
+    writeHistory(env, [{ at: new Date().toISOString(), event: 'outreach:sending', id: 'MSG-2026-0001' }])
+    return env
+  }
+
+  test('envoi interrompu : la preuve cite l\'expéditeur de config/mail.json', async () => {
+    const env = interruptedEnv()
+    const run = await cli(env, 'report:daily')
+    assert.equal(run.code, 0, run.stderr + run.stdout)
+    const md = readFileSync(join(env.dataDir, 'reports', 'daily-report.md'), 'utf8')
+    assert.ok(md.includes('la copie cachée dans la boîte de réception de ' + FROM + ' (ou le journal Postfix)'))
+  })
+
+  test('sans config/mail.json : le rapport sort quand même, avec le texte générique', async () => {
+    const env = interruptedEnv()
+    rmSync(join(env.configDir, 'mail.json'))
+    const run = await cli(env, 'report:daily')
+    assert.equal(run.code, 0, run.stderr + run.stdout)
+    const md = readFileSync(join(env.dataDir, 'reports', 'daily-report.md'), 'utf8')
+    assert.ok(md.includes('la copie cachée de l\'expéditeur'))
+  })
+})

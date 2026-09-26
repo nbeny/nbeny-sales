@@ -42,7 +42,7 @@ node src/cli.ts outreach:edit MSG-x --file x.json    # corrige, annule l'approba
 node src/cli.ts outreach:approve MSG-x        # Nicolas, au clavier
 node src/cli.ts outreach:clear-sending MSG-x  # Nicolas, au clavier
 node src/cli.ts outreach:send MSG-x --dry-run # puis sans --dry-run
-node --test "test/*.test.ts"               # 189 tests, sans dépendance
+node --test "test/*.test.ts"               # 193 tests, sans dépendance
 ```
 
 ## Slash commands

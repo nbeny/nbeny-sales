@@ -763,6 +763,15 @@ function genericAdd(collection: string, kind: Parameters<typeof nextId>[0], labe
   console.log(row.id + ' ajouté à ' + collection + '.json (' + label + ')')
 }
 
+/** Le rapport ne doit pas tomber faute de config/mail.json : le texte générique de report.ts prend alors le relais. */
+function reportEvidence(): string | undefined {
+  try {
+    return sentEvidence(readConfig<MailConfig>('mail'))
+  } catch {
+    return undefined
+  }
+}
+
 function reportDaily(): void {
   const date = new Date().toISOString()
   const markdown = buildDailyReport({
@@ -774,6 +783,7 @@ function reportDaily(): void {
     market: readCollection('market'),
     windowDays: Number(flag('days') ?? 1),
     interruptedSends: orphanSendings(readHistory() as HistoryEvent[]),
+    sentEvidence: reportEvidence(),
   })
   const day = date.slice(0, 10)
   writeText(join(REPORTS_DIR, day + '.md'), markdown)

@@ -18,10 +18,15 @@ export interface ReportInput {
   windowDays?: number
   /** Messages dont l'envoi a été interrompu (`orphanSendings` sur le journal) : calculés par l'appelant, le rendu reste pur. */
   interruptedSends?: string[]
+  /**
+   * Où vérifier qu'un message interrompu est parti (`sentEvidence(config)`, fourni
+   * par l'appelant) : l'envoi SMTP ne dépose rien dans le dossier des messages envoyés.
+   */
+  sentEvidence?: string
 }
 
-/** Où vérifier qu'un message est parti : l'envoi SMTP ne dépose rien dans le dossier des messages envoyés. */
-const EVIDENCE = 'la copie cachée dans la boîte de réception de nicolas@urbanlink.fr (ou le journal Postfix)'
+/** Quand l'appelant n'a pas pu lire la configuration d'envoi. */
+const GENERIC_EVIDENCE = 'la copie cachée de l\'expéditeur (ou le journal Postfix)'
 
 function recipientLabel(m: OutreachMessage): string {
   return m.to ? (m.to.name ? m.to.name + ' <' + m.to.email + '>' : m.to.email) : 'sans destinataire'
@@ -94,10 +99,12 @@ export function buildDailyReport(input: ReportInput): string {
     .sort(byScore)
     .slice(0, 6)
 
-  const drafts = input.outreach.filter((m) => m.status === 'DRAFT')
-  const approved = input.outreach.filter((m) => m.status === 'APPROVED')
-  const sent = input.outreach.filter((m) => m.status === 'SENT')
   const interrupted = input.interruptedSends ?? []
+  const evidence = input.sentEvidence || GENERIC_EVIDENCE
+  const drafts = input.outreach.filter((m) => m.status === 'DRAFT')
+  // Un message interrompu reste APPROVED mais ne partira pas tant qu'il n'est pas tranché : il n'est pas « en attente ».
+  const approved = input.outreach.filter((m) => m.status === 'APPROVED' && !interrupted.includes(m.id))
+  const sent = input.outreach.filter((m) => m.status === 'SENT')
   const dueFollowups = input.followups.filter(
     (f) => f.nextActionAt && Date.parse(f.nextActionAt) <= now.getTime() && !['WON', 'LOST'].includes(f.status),
   )
@@ -149,7 +156,7 @@ export function buildDailyReport(input: ReportInput): string {
       interrupted.map((id) => {
         const m = input.outreach.find((o) => o.id === id)
         return '- `' + id + '`' + (m ? ' → **' + m.companyName + '** · ' + recipientLabel(m) : '') +
-          '\n  - On ne sait pas s\'il est parti. Vérifier ' + EVIDENCE +
+          '\n  - On ne sait pas s\'il est parti. Vérifier ' + evidence +
           ', puis `node src/cli.ts outreach:mark-sent ' + id + '` (parti) ou `node src/cli.ts outreach:clear-sending ' + id + '` (pas parti)'
       }),
     ),
