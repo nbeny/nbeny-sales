@@ -5,7 +5,6 @@
  */
 import { connect as netConnect, type Socket } from 'node:net'
 import { connect as tlsConnect } from 'node:tls'
-import { hostname } from 'node:os'
 
 export class SmtpError extends Error {
   readonly command: string
@@ -51,10 +50,18 @@ interface Pending {
 }
 
 export function dotStuff(raw: string): string {
+  // Entrée en CRLF : buildMessage normalise déjà les fins de ligne.
   return raw.split('\r\n').map((line) => (line.startsWith('.') ? '.' + line : line)).join('\r\n')
 }
 
-function replyReader(socket: Socket, timeoutMs: number): (command: string) => Promise<Reply> {
+/** Hors imprimable ASCII, ou '<'/'>' : de quoi injecter une commande dans l'enveloppe SMTP. */
+const INVALID_ADDRESS = /[^\x21-\x7e]|[<>]/
+
+function checkAddress(value: string): void {
+  if (INVALID_ADDRESS.test(value)) throw new Error('Adresse SMTP invalide : ' + JSON.stringify(value))
+}
+
+function replyReader(socket: Socket, defaultTimeoutMs: number): (command: string, timeoutMs?: number) => Promise<Reply> {
   let buffer = ''
   let failure: Error | null = null
   let pending: Pending | null = null
@@ -82,14 +89,14 @@ function replyReader(socket: Socket, timeoutMs: number): (command: string) => Pr
     current.reject(new SmtpError(current.command, 0, error.message))
   }
 
-  socket.on('data', (chunk: Buffer) => {
-    buffer += chunk.toString('utf8')
+  socket.on('data', (chunk: string) => {
+    buffer += chunk
     settle()
   })
   socket.on('error', fail)
   socket.on('close', () => fail(new Error('connexion fermée par le serveur')))
 
-  return (command) =>
+  return (command, timeoutMs = defaultTimeoutMs) =>
     new Promise<Reply>((resolve, reject) => {
       if (failure) {
         reject(new SmtpError(command, 0, failure.message))
@@ -106,10 +113,16 @@ function replyReader(socket: Socket, timeoutMs: number): (command: string) => Pr
 }
 
 export async function sendMail(options: SmtpOptions): Promise<{ reply: string }> {
+  checkAddress(options.from)
+  for (const rcpt of options.rcpt) checkAddress(rcpt)
+  if (options.ehloName) checkAddress(options.ehloName)
+
+  const timeoutMs = options.timeoutMs ?? 30_000
   const socket = options.tls
     ? tlsConnect({ host: options.host, port: options.port, servername: options.servername ?? options.host })
     : netConnect({ host: options.host, port: options.port })
-  const read = replyReader(socket, options.timeoutMs ?? 30_000)
+  socket.setEncoding('utf8')
+  const read = replyReader(socket, timeoutMs)
   const send = (line: string) => socket.write(line + '\r\n')
   const expect = async (command: string, accepted: number[]): Promise<Reply> => {
     const reply = await read(command)
@@ -119,7 +132,8 @@ export async function sendMail(options: SmtpOptions): Promise<{ reply: string }>
 
   try {
     await expect('CONNEXION', [220])
-    send('EHLO ' + (options.ehloName ?? hostname()))
+    // Le domaine est un FQDN valide et évite de fuiter le nom de la machine locale dans les en-têtes Received.
+    send('EHLO ' + (options.ehloName ?? options.from.split('@')[1]))
     await expect('EHLO', [250])
     send('AUTH PLAIN ' + Buffer.from('\0' + options.user + '\0' + options.pass, 'utf8').toString('base64'))
     await expect('AUTH', [235])
@@ -136,7 +150,7 @@ export async function sendMail(options: SmtpOptions): Promise<{ reply: string }>
     socket.write(dotStuff(raw) + '.\r\n')
     const accepted = await expect('fin de DATA', [250])
     send('QUIT')
-    await read('QUIT').catch(() => undefined)
+    await read('QUIT', Math.min(2000, timeoutMs)).catch(() => undefined)
     return { reply: accepted.text }
   } finally {
     socket.destroy()
