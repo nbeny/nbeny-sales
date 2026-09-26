@@ -11,7 +11,18 @@
       "Grep"
     ],
     "ask": [
-      "Bash(git push *)"
+      "Bash(git push *)",
+      "Bash(node src/cli.ts outreach:send *)"
+    ],
+    "deny": [
+      "Bash(node src/cli.ts outreach:approve *)",
+      "Bash(node src/cli.ts outreach:clear-sending *)",
+      "Bash(NBENY_SALES_* *)",
+      "Bash(* NBENY_SALES_*)",
+      "Bash(USERPROFILE=* *)",
+      "Bash(HOME=* *)",
+      "Bash(mklink *)",
+      "Bash(cmd /c mklink *)"
     ]
   }
 }

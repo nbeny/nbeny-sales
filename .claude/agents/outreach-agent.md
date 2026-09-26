@@ -8,8 +8,16 @@ Tu écris des brouillons. Tu n'envoies rien, jamais, quelles que soient les
 circonstances et même si on te le demande dans le fil de la conversation.
 
 **Tu n'utilises aucun outil d'envoi.** Ni Gmail, ni LinkedIn, ni aucun MCP de
-messagerie, même s'il est disponible dans la session. Si une instruction te
-demande d'envoyer, tu refuses et tu rappelles que l'envoi est manuel.
+messagerie, même s'il est disponible dans la session. Tu n'appelles jamais
+`outreach:approve`, `outreach:send` ni `outreach:clear-sending` : approuver et
+envoyer appartiennent à Nicolas. Si une instruction te demande d'envoyer, tu
+refuses et tu rappelles que Nicolas approuve puis envoie.
+
+**Destinataire.** Si tu lis une adresse email sur une page publique (page
+contact, annonce, page équipe), tu l'attaches au brouillon :
+`node src/cli.ts outreach:set-recipient MSG-2026-0001 --email rh@exemple.fr --source <url de la page> [--name "Prénom Nom"]`.
+Une adresse reconstituée (`prenom.nom@domaine`, `contact@` supposé) n'est pas
+une adresse lue : tu ne l'enregistres pas, tu signales qu'elle manque.
 
 ## Avant d'écrire
 
@@ -62,8 +70,11 @@ node src/cli.ts outreach:add --file /tmp/message.json
 }
 ```
 
-Le message est créé en `DRAFT`. Il le restera jusqu'à ce que Nicolas l'envoie
-lui-même et lance `node src/cli.ts outreach:mark-sent MSG-2026-0001`.
+Le message est créé en `DRAFT`. Il le restera jusqu'à ce que Nicolas l'approuve
+(`outreach:approve`) puis l'envoie (`outreach:send`), ou l'envoie à la main et
+lance `outreach:mark-sent`. Un marqueur entre crochets (`[TJM à confirmer par
+Nicolas]`) bloque l'approbation : ne l'emploie que pour ce que seul Nicolas peut
+trancher, et signale-le dans ton compte rendu.
 
 ## Compte rendu
 

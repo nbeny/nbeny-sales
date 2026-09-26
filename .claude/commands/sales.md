@@ -17,6 +17,7 @@ Déroulé attendu :
 6. `node src/cli.ts report:daily`.
 
 Termine par une synthèse courte : les HIGH avec leurs réserves, ce qui attend une
-décision de Nicolas, et le rappel qu'aucun message n'a été envoyé.
+décision de Nicolas (dont les messages APPROVED prêts pour `outreach:send`), et
+le rappel qu'aucun message n'a été envoyé ni approuvé par les agents.
 
 $ARGUMENTS

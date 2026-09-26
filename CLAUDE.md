@@ -11,8 +11,13 @@ Système d'agents de prospection, matching et suivi pour le profil de Nicolas BE
 2. **Un fait porte son URL.** Tout ce qui entre dans `facts` doit venir d'une page
    publique consultée, avec son URL et sa date de lecture. Le reste va dans
    `assumptions`, avec la raison, et ne compte pas dans le score.
-3. **Ne jamais rien envoyer.** Aucun email, aucun message LinkedIn, aucune
-   candidature. Les agents produisent des brouillons ; Nicolas décide et envoie.
+3. **Rien ne part sans l'approbation de Nicolas.** Les agents produisent des
+   brouillons ; ils peuvent y attacher un destinataire lu sur une page publique
+   (`outreach:set-recipient`, URL obligatoire). Seul Nicolas approuve
+   (`outreach:approve`, confirmation au clavier), message par message, et seuls
+   les messages approuvés partent (`outreach:send`). Aucun agent n'appelle
+   `approve`, `send` ni `clear-sending`. Aucun message LinkedIn, aucune
+   candidature par formulaire.
 4. **Ne jamais masquer un point faible.** Un score sans ses réserves est un
    mensonge par omission.
 5. **Ne jamais écrire dans `data/` à la main.** Tout passe par `node src/cli.ts`,
@@ -31,7 +36,12 @@ node src/cli.ts opportunity:add --file x.json
 node src/cli.ts opportunity:list --priority HIGH
 node src/cli.ts match:all
 node src/cli.ts report:daily
-node --test "test/*.test.ts"               # 50 tests, sans dépendance
+node src/cli.ts outreach:set-recipient MSG-x --email a@b.fr --source https://...
+node src/cli.ts outreach:edit MSG-x --file x.json    # corrige, annule l'approbation
+node src/cli.ts outreach:approve MSG-x        # Nicolas, au clavier
+node src/cli.ts outreach:clear-sending MSG-x  # Nicolas, au clavier
+node src/cli.ts outreach:send MSG-x --dry-run # puis sans --dry-run
+node --test "test/*.test.ts"               # 176 tests, sans dépendance
 ```
 
 ## Slash commands
