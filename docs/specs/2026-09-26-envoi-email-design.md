@@ -27,9 +27,10 @@ aujourd'hui.
 
 > **Rien ne part sans l'approbation de Nicolas.** Les agents produisent des
 > brouillons ; ils peuvent y attacher un destinataire lu sur une page publique.
-> Seul Nicolas approuve (`outreach:approve`), message par message, et seuls les
-> messages approuvés peuvent être envoyés (`outreach:send`). Aucun agent
-> n'appelle `approve` ni `send`.
+> Seul Nicolas approuve (`outreach:approve`, au clavier), message par message,
+> et seuls les messages approuvés partent. Aucun agent n'appelle `approve` ni
+> `clear-sending` ; `send` ne part que sur demande explicite de Nicolas, après
+> confirmation.
 
 ## Côté infra (rôle `mailcow`)
 
