@@ -1,0 +1,110 @@
+/**
+ * Règles d'approbation et d'envoi des messages. Pur : aucune I/O, pour que
+ * chaque garde-fou soit testé sans réseau et sans toucher à `data/`.
+ */
+import { createHash } from 'node:crypto'
+import { TERMINAL_STAGES, type Opportunity, type OutreachMessage } from './types.ts'
+import { findPlaceholders } from './validate.ts'
+import type { MailConfig } from './mail-config.ts'
+
+export interface HistoryEvent {
+  at: string
+  event: string
+  id?: string
+  [key: string]: unknown
+}
+
+export interface SendContext {
+  opportunity?: Opportunity
+  events: HistoryEvent[]
+  outreach: OutreachMessage[]
+  now: Date
+  config: MailConfig
+  forceRecipient: boolean
+}
+
+/** Empreinte de ce que Nicolas a lu au moment d'approuver. */
+export function approvalHash(m: Pick<OutreachMessage, 'to' | 'subject' | 'body'>): string {
+  return createHash('sha256')
+    .update(JSON.stringify([m.to?.email ?? '', m.to?.name ?? '', m.subject, m.body]))
+    .digest('hex')
+    .slice(0, 16)
+}
+
+function isClosed(opportunity: Opportunity | undefined): opportunity is Opportunity {
+  return !!opportunity && (TERMINAL_STAGES as readonly string[]).includes(opportunity.stage)
+}
+
+function commonIssues(m: OutreachMessage, opportunity: Opportunity | undefined): string[] {
+  const issues: string[] = []
+  if (m.channel !== 'email') issues.push('Canal `' + m.channel + '` : seuls les emails partent par la CLI.')
+  if (!m.to) issues.push('Aucun destinataire : lance d\'abord outreach:set-recipient ' + m.id + '.')
+  if (isClosed(opportunity)) {
+    issues.push('L\'opportunité ' + opportunity.id + ' est ' + opportunity.stage + ' : on n\'écrit pas pour une annonce close.')
+  }
+  return issues
+}
+
+export function approvalIssues(m: OutreachMessage, opportunity?: Opportunity): string[] {
+  const issues: string[] = []
+  if (m.status === 'SENT') issues.push(m.id + ' est déjà envoyé.')
+  issues.push(...commonIssues(m, opportunity))
+  const markers = findPlaceholders(m.subject + '\n' + m.body)
+  if (markers.length) {
+    issues.push('Marqueurs à compléter : ' + markers.join(', ') + '. Corrige avec outreach:edit ' + m.id + '.')
+  }
+  return issues
+}
+
+/** Événements qui ferment un `outreach:sending`. `send-uncertain` n'en fait pas partie. */
+const CLOSING_EVENTS = new Set(['outreach:sent', 'outreach:send-failed', 'outreach:clear-sending', 'outreach:mark-sent'])
+
+/** Messages dont l'envoi a commencé sans qu'on sache s'il a abouti. */
+export function orphanSendings(events: HistoryEvent[]): string[] {
+  const open = new Set<string>()
+  for (const e of events) {
+    if (!e.id) continue
+    if (e.event === 'outreach:sending') open.add(e.id)
+    else if (CLOSING_EVENTS.has(e.event)) open.delete(e.id)
+  }
+  return [...open]
+}
+
+/** Envois réussis un jour donné (`YYYY-MM-DD`, UTC comme le journal). */
+export function sentCountOn(events: HistoryEvent[], day: string): number {
+  return events.filter((e) => e.event === 'outreach:sent' && e.at.startsWith(day)).length
+}
+
+function lastSentTo(email: string, outreach: OutreachMessage[], now: Date, days: number): OutreachMessage | undefined {
+  const since = now.getTime() - days * 86_400_000
+  const target = email.toLowerCase()
+  return outreach.find(
+    (o) => o.status === 'SENT' && o.to?.email.toLowerCase() === target && !!o.sentAt && Date.parse(o.sentAt) >= since,
+  )
+}
+
+export function sendIssues(m: OutreachMessage, ctx: SendContext): string[] {
+  const issues: string[] = []
+  if (m.status !== 'APPROVED') issues.push(m.id + ' est ' + m.status + ' : seul un message APPROVED part.')
+  issues.push(...commonIssues(m, ctx.opportunity))
+  if (m.status === 'APPROVED' && m.approvedHash !== approvalHash(m)) {
+    issues.push('Le message a changé depuis son approbation : relis-le et réapprouve-le (outreach:approve ' + m.id + ').')
+  }
+  if (orphanSendings(ctx.events).includes(m.id)) {
+    issues.push(
+      'Un envoi de ' + m.id + ' a été interrompu : on ne sait pas s\'il est parti. Vérifie le dossier Envoyés, puis outreach:mark-sent ' +
+        m.id + ' ou outreach:clear-sending ' + m.id + '.',
+    )
+  }
+  if (m.to && !ctx.forceRecipient) {
+    const others = ctx.outreach.filter((o) => o.id !== m.id)
+    const previous = lastSentTo(m.to.email, others, ctx.now, ctx.config.recipientCooldownDays)
+    if (previous) {
+      issues.push(
+        m.to.email + ' a déjà reçu ' + previous.id + ' le ' + previous.sentAt!.slice(0, 10) + ', il y a moins de ' +
+          ctx.config.recipientCooldownDays + ' jours. --force-recipient pour passer outre.',
+      )
+    }
+  }
+  return issues
+}
