@@ -98,10 +98,23 @@ DRAFT ──outreach:set-recipient──▶ DRAFT + to
   l'approbation. Refusé sur un message `SENT`.
 - **Confirmation au clavier** : `approve` et `clear-sending` exigent un
   terminal interactif (`process.stdin.isTTY`) et que Nicolas tape l'identifiant
-  du message. Un agent lance ses commandes sans TTY : il ne peut pas approuver,
-  même si ses permissions l'autorisent à appeler la CLI (la tâche planifiée
-  pré-autorise `node src/cli.ts *`). C'est le verrou dur ; les règles `ask` de
-  `.claude/settings.json` en sont un second.
+  du message. Un agent qui appelle la CLI normalement n'a pas de TTY : il ne
+  peut pas approuver, même si ses permissions l'autorisent à lancer
+  `node src/cli.ts *`. La confirmation est aussi refusée si Node a été lancé
+  avec des options (`--import`, `NODE_OPTIONS`), qui permettraient de simuler
+  un TTY. Ce n'est pas une barrière contre qui peut exécuter du code
+  arbitraire : les règles de permission (`ask`, et l'absence de pré-autorisation
+  de `node --import`/`node -e` dans la tâche planifiée) en sont l'autre moitié.
+- **Relecture avant écriture** : chaque commande relit `data/outreach.json`
+  juste avant d'écrire et ne modifie que sa ligne. `approve` vérifie en plus que
+  l'empreinte du message n'a pas changé pendant la confirmation.
+- **Caractères invisibles** : `subject`, `body` et le nom du destinataire
+  refusent les caractères de contrôle (sauf saut de ligne et tabulation) et les
+  caractères invisibles ou de direction Unicode. Ce que Nicolas lit à
+  l'approbation est exactement ce qui part. `
+` est normalisé en `
+` à
+  l'entrée.
 - `outreach:mark-sent` reste pour les envois faits hors CLI.
 
 ### Nouveaux modules
@@ -161,6 +174,16 @@ fichier créer ; `--dry-run` fonctionne sans.
    `dailyCap`. Au-delà, les messages restants sont listés et laissés
    `APPROVED`.
 6. Entre deux envois d'un même lot : `minDelaySeconds`.
+7. Le journal ne contient aucun `outreach:sent` ni `outreach:mark-sent` pour ce
+   message (le journal, append-only, fait foi même si `outreach.json` a été
+   réécrit).
+
+Un seul `send` à la fois : verrou exclusif `data/send.lock.json` (pid, date),
+retiré à la fin. Les garde-fous 1 à 7 et le plafond sont **revérifiés avant
+chaque message** d'un lot, sur une relecture fraîche de `data/` : un lot dure
+jusqu'à un quart d'heure, et un message modifié, annulé ou envoyé à la main
+entre-temps ne doit pas partir. Un échec du tunnel journalise `send-failed`
+pour chaque message du lot non encore tenté.
 
 `--dry-run` exécute 1 à 5 et affiche le message brut qui partirait, sans ouvrir
 de tunnel.
@@ -215,6 +238,13 @@ comportement reste celui de `mark-sent`.
 - **validation** : `set-recipient` refusé sans `--source` ou avec une adresse
   mal formée ; `findPlaceholders` trouve `[TJM à confirmer par Nicolas]` et
   ignore un texte sans crochets.
+
+- **intégration CLI** (`test/cli-send.test.ts`) : `data/` et `config/` pointés
+  vers des dossiers temporaires (`NBENY_SALES_DATA_DIR`,
+  `NBENY_SALES_CONFIG_DIR`, `NBENY_SALES_SMTP_ENV` = chemin du fichier secret),
+  connexion directe à un faux serveur SMTP (`tunnel` absent, `smtp.tls: false`) ;
+  envoi réussi, message modifié en plein lot, déjà envoyé au journal, verrou,
+  coupure incertaine, plafond.
 
 Le tunnel n'a pas de test unitaire. Vérification manuelle : `--dry-run`, puis
 un premier envoi réel vers `alesio@urbanlink.fr`.
