@@ -23,7 +23,10 @@ export interface SendContext {
   forceRecipient: boolean
 }
 
-/** Empreinte de ce que Nicolas a lu au moment d'approuver. */
+/**
+ * Empreinte de ce que Nicolas a lu au moment d'approuver. L'expéditeur vient
+ * de config/mail.json et n'y entre pas.
+ */
 export function approvalHash(m: Pick<OutreachMessage, 'to' | 'subject' | 'body'>): string {
   return createHash('sha256')
     .update(JSON.stringify([m.to?.email ?? '', m.to?.name ?? '', m.subject, m.body]))
@@ -39,8 +42,15 @@ function commonIssues(m: OutreachMessage, opportunity: Opportunity | undefined):
   const issues: string[] = []
   if (m.channel !== 'email') issues.push('Canal `' + m.channel + '` : seuls les emails partent par la CLI.')
   if (!m.to) issues.push('Aucun destinataire : lance d\'abord outreach:set-recipient ' + m.id + '.')
+  if (m.opportunityId && !opportunity) {
+    issues.push('Opportunité ' + m.opportunityId + ' introuvable : impossible de vérifier qu\'elle est encore ouverte.')
+  }
   if (isClosed(opportunity)) {
     issues.push('L\'opportunité ' + opportunity.id + ' est ' + opportunity.stage + ' : on n\'écrit pas pour une annonce close.')
+  }
+  const markers = findPlaceholders(m.subject + '\n' + m.body)
+  if (markers.length) {
+    issues.push('Marqueurs à compléter : ' + markers.join(', ') + '. Corrige avec outreach:edit ' + m.id + '.')
   }
   return issues
 }
@@ -49,10 +59,6 @@ export function approvalIssues(m: OutreachMessage, opportunity?: Opportunity): s
   const issues: string[] = []
   if (m.status === 'SENT') issues.push(m.id + ' est déjà envoyé.')
   issues.push(...commonIssues(m, opportunity))
-  const markers = findPlaceholders(m.subject + '\n' + m.body)
-  if (markers.length) {
-    issues.push('Marqueurs à compléter : ' + markers.join(', ') + '. Corrige avec outreach:edit ' + m.id + '.')
-  }
   return issues
 }
 
@@ -70,16 +76,16 @@ export function orphanSendings(events: HistoryEvent[]): string[] {
   return [...open]
 }
 
-/** Envois réussis un jour donné (`YYYY-MM-DD`, UTC comme le journal). */
+/** Envois réussis un jour UTC donné (`YYYY-MM-DD`, comme le journal) : le plafond repart à 02:00 heure de Paris en été. */
 export function sentCountOn(events: HistoryEvent[], day: string): number {
   return events.filter((e) => e.event === 'outreach:sent' && e.at.startsWith(day)).length
 }
 
 function lastSentTo(email: string, outreach: OutreachMessage[], now: Date, days: number): OutreachMessage | undefined {
   const since = now.getTime() - days * 86_400_000
-  const target = email.toLowerCase()
+  const target = email.trim().toLowerCase()
   return outreach.find(
-    (o) => o.status === 'SENT' && o.to?.email.toLowerCase() === target && !!o.sentAt && Date.parse(o.sentAt) >= since,
+    (o) => o.status === 'SENT' && o.to?.email.trim().toLowerCase() === target && !!o.sentAt && Date.parse(o.sentAt) >= since,
   )
 }
 

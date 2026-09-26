@@ -106,6 +106,10 @@ describe('approvalIssues', () => {
   test('déjà envoyé : refusé', () => {
     assert.ok(approvalIssues(draft({ status: 'SENT' })).some((i) => i.includes('déjà envoyé')))
   })
+
+  test('opportunité liée introuvable : refusé', () => {
+    assert.ok(approvalIssues(draft(), undefined).some((i) => i.includes('introuvable')))
+  })
 })
 
 describe('sendIssues', () => {
@@ -150,6 +154,29 @@ describe('sendIssues', () => {
   test('même adresse contactée il y a 40 jours : part', () => {
     const previous = draft({ id: 'MSG-2026-0002', status: 'SENT', sentAt: '2026-08-19T10:00:00Z' })
     assert.deepEqual(sendIssues(approved(), ctx({ outreach: [previous] })), [])
+  })
+
+  test('adresse avec espaces et majuscules contactée il y a 10 jours : cooldown quand même détecté', () => {
+    const previous = draft({
+      id: 'MSG-2026-0002',
+      status: 'SENT',
+      sentAt: '2026-09-18T10:00:00Z',
+      to: { email: ' RH@acme.example ', sourceUrl: 'https://acme.example/contact', readAt: '2026-09-17T00:00:00Z' },
+    })
+    assert.ok(sendIssues(approved(), ctx({ outreach: [previous] })).some((i) => i.includes('a déjà reçu')))
+  })
+
+  test('opportunité liée introuvable : refusé', () => {
+    assert.ok(sendIssues(approved(), ctx({ opportunity: undefined })).some((i) => i.includes('introuvable')))
+  })
+
+  test('sans opportunité liée : pas de vérification exigée', () => {
+    assert.deepEqual(sendIssues(approved({ opportunityId: undefined }), ctx({ opportunity: undefined })), [])
+  })
+
+  test('marqueur réapparu après approbation : bloqué même avec une empreinte à jour', () => {
+    const m = approved({ body: 'Bonjour, message avec un marqueur [TODO] resté après édition manuelle.' })
+    assert.ok(sendIssues(m, ctx()).some((i) => i.includes('Marqueurs à compléter')))
   })
 })
 
