@@ -3,8 +3,8 @@
  * du dépôt). Le mot de passe n'est jamais une variable d'environnement : il
  * fuirait dans les journaux de la tâche planifiée.
  */
-import { existsSync, readFileSync } from 'node:fs'
-import { homedir } from 'node:os'
+import { existsSync, readFileSync, statSync } from 'node:fs'
+import { userInfo } from 'node:os'
 import { join, resolve } from 'node:path'
 
 export interface MailConfig {
@@ -20,7 +20,11 @@ export interface MailConfig {
   recipientCooldownDays: number
 }
 
-export const SECRET_PATH = join(homedir(), '.nbeny-sales', 'smtp.env')
+/**
+ * Dossier du compte système, pas `homedir()` : celui-ci suit USERPROFILE / HOME,
+ * qu'il suffirait de changer pour que le vrai secret passe pour un fichier de test.
+ */
+export const SECRET_PATH = join(userInfo().homedir, '.nbeny-sales', 'smtp.env')
 
 export function parseEnv(text: string): Record<string, string> {
   const values: Record<string, string> = {}
@@ -60,6 +64,32 @@ function samePath(a: string, b: string, platform: string): boolean {
 
 const LOCAL_HOSTS = ['127.0.0.1', 'localhost']
 
+/** Accès aux fichiers secrets, injectable pour les tests. Aucun des deux ne lève d'erreur. */
+export interface SecretProbe {
+  /** SMTP_PASSWORD du fichier, ou `undefined` s'il est absent ou illisible. */
+  password: (path: string) => string | undefined
+  /** `dev:ino` du fichier, ou `undefined` s'il est absent. */
+  identity: (path: string) => string | undefined
+}
+
+export const fileProbe: SecretProbe = {
+  password: (path) => {
+    try {
+      return parseEnv(readFileSync(path, 'utf8')).SMTP_PASSWORD || undefined
+    } catch {
+      return undefined
+    }
+  },
+  identity: (path) => {
+    try {
+      const s = statSync(path, { bigint: true })
+      return s.dev + ':' + s.ino
+    } catch {
+      return undefined
+    }
+  },
+}
+
 /**
  * Refus à opposer avant tout envoi réel, avant même de lire un mot de passe.
  * Des dossiers de test ne doivent jamais servir à faire partir un message avec
@@ -67,11 +97,30 @@ const LOCAL_HOSTS = ['127.0.0.1', 'localhost']
  * outreach:approve), et une connexion en clair ou sans tunnel n'est admise
  * que vers un faux serveur local, en test.
  */
-export function sendSafetyIssues(config: MailConfig, env: Env = process.env, secretPath: string = SECRET_PATH, platform: string = process.platform): string[] {
+export function sendSafetyIssues(
+  config: MailConfig,
+  env: Env = process.env,
+  secretPath: string = SECRET_PATH,
+  platform: string = process.platform,
+  probe: SecretProbe = fileProbe,
+): string[] {
   const issues: string[] = []
   const overrides = testOverridesActive(env)
-  if (overrides && (!env.NBENY_SALES_SMTP_ENV || samePath(env.NBENY_SALES_SMTP_ENV, secretPath, platform))) {
+  const testSecret = env.NBENY_SALES_SMTP_ENV
+  if (overrides && (!testSecret || samePath(testSecret, secretPath, platform))) {
     issues.push('Dossiers de test actifs (NBENY_SALES_*) : le vrai mot de passe SMTP n\'est jamais utilisé avec eux.')
+  } else if (overrides && testSecret) {
+    // Un chemin différent peut désigner le même fichier (flux ::$DATA, jonction,
+    // lien physique, nom court 8.3) : on compare aussi l'identité et le contenu.
+    const testId = probe.identity(testSecret)
+    const realId = probe.identity(secretPath)
+    if (testId !== undefined && testId === realId) {
+      issues.push('Le fichier de test est le vrai fichier secret (même fichier sur le disque) : refusé.')
+    }
+    const realPassword = probe.password(secretPath)
+    if (realPassword !== undefined && probe.password(testSecret) === realPassword) {
+      issues.push('Le fichier de test contient le vrai mot de passe SMTP : refusé.')
+    }
   }
   const insecure = config.smtp.tls === false || !config.tunnel
   if (insecure && !(overrides && LOCAL_HOSTS.includes(config.smtp.host))) {

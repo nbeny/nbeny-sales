@@ -178,7 +178,8 @@ export function findPlaceholders(text: string): string[] {
 /**
  * Caractères qu'on ne voit pas en relisant : contrôles C0 (sauf \n et \t, donc
  * \r compris), DEL et C1, trait d'union conditionnel, largeur nulle, remplisseurs
- * Hangul, contrôles bidirectionnels, BOM, caractères d'étiquette. Ils peuvent
+ * Hangul, séparateurs de ligne et de paragraphe (U+2028, U+2029), contrôles
+ * bidirectionnels, BOM, caractères d'étiquette. Ils peuvent
  * faire lire à Nicolas autre chose que ce qui part.
  *
  * Plages en points de code (et non une classe de caractères écrite en échappements)
@@ -192,6 +193,7 @@ const HIDDEN_RANGES: readonly (readonly [number, number])[] = [
   [0x034f, 0x034f],
   [0x115f, 0x1160],
   [0x200b, 0x200f],
+  [0x2028, 0x2029],
   [0x202a, 0x202e],
   [0x2060, 0x2064],
   [0x2066, 0x2069],

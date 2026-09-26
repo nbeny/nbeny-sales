@@ -1,10 +1,12 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { linkSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
-import { parseEnv, readSmtpPassword, sendSafetyIssues, testOverridesActive, type MailConfig } from '../src/lib/mail-config.ts'
+import { parseEnv, readSmtpPassword, SECRET_PATH, sendSafetyIssues, testOverridesActive, type MailConfig } from '../src/lib/mail-config.ts'
 
 describe('parseEnv', () => {
   test('ignore commentaires et lignes vides, garde les = dans la valeur, retire les guillemets', () => {
@@ -87,5 +89,85 @@ describe('sendSafetyIssues', () => {
   test('variables vides : considérées comme absentes', () => {
     assert.equal(testOverridesActive({ NBENY_SALES_DATA_DIR: '', NBENY_SALES_CONFIG_DIR: '' }), false)
     assert.equal(testOverridesActive({ NBENY_SALES_CONFIG_DIR: 'x' }), true)
+  })
+})
+
+describe('sendSafetyIssues — alias du vrai secret', () => {
+  const CONFIG: MailConfig = {
+    from: { email: 'nicolas@urbanlink.fr', name: 'Nicolas BENY' },
+    bccSelf: true,
+    smtp: { host: '127.0.0.1', port: 2525, servername: 'localhost', tls: false },
+    dailyCap: 10,
+    minDelaySeconds: 1,
+    recipientCooldownDays: 30,
+  }
+  const CONTENT_REFUSAL = 'Le fichier de test contient le vrai mot de passe SMTP : refusé.'
+  const SAME_FILE_REFUSAL = 'Le fichier de test est le vrai fichier secret (même fichier sur le disque) : refusé.'
+
+  /** Un faux « vrai secret » dans un dossier temporaire : le vrai ~/.nbeny-sales n'est jamais touché. */
+  function files(realPassword: string, testPassword: string) {
+    const dir = mkdtempSync(join(tmpdir(), 'nbeny-sales-alias-'))
+    const real = join(dir, 'real-smtp.env')
+    const fake = join(dir, 'test-smtp.env')
+    writeFileSync(real, 'SMTP_PASSWORD=' + realPassword + '\n')
+    writeFileSync(fake, 'SMTP_PASSWORD=' + testPassword + '\n')
+    return { dir, real, fake }
+  }
+  const envFor = (smtpEnv: string) => ({ NBENY_SALES_DATA_DIR: join(tmpdir(), 'x', 'data'), NBENY_SALES_SMTP_ENV: smtpEnv })
+
+  test('contenus différents : accepté', () => {
+    const f = files('vrai-secret', 'secret-de-test')
+    assert.deepEqual(sendSafetyIssues(CONFIG, envFor(f.fake), f.real), [])
+  })
+
+  test('même mot de passe dans un autre fichier : refusé', () => {
+    const f = files('vrai-secret', 'vrai-secret')
+    assert.deepEqual(sendSafetyIssues(CONFIG, envFor(f.fake), f.real), [CONTENT_REFUSAL])
+  })
+
+  test('lien physique vers le vrai secret : refusé comme même fichier', () => {
+    const f = files('vrai-secret', 'inutilisé')
+    const link = join(f.dir, 'hardlink-smtp.env')
+    linkSync(f.real, link)
+    const issues = sendSafetyIssues(CONFIG, envFor(link), f.real)
+    assert.ok(issues.includes(SAME_FILE_REFUSAL), JSON.stringify(issues))
+  })
+
+  test('même dev+ino, contenus différents (lecteur factice) : refusé comme même fichier', () => {
+    const probe = {
+      password: (p: string) => (p === 'reel' ? 'a' : 'b'),
+      identity: () => '42:1234',
+    }
+    assert.deepEqual(sendSafetyIssues(CONFIG, envFor('test'), 'reel', 'linux', probe), [SAME_FILE_REFUSAL])
+  })
+
+  test('vrai secret absent : seule la vérification de chemin compte', () => {
+    const f = files('x', 'secret-de-test')
+    assert.deepEqual(sendSafetyIssues(CONFIG, envFor(f.fake), join(f.dir, 'absent.env')), [])
+  })
+
+  test('flux NTFS ::$DATA du vrai secret : refusé', { skip: process.platform !== 'win32' }, () => {
+    const f = files('vrai-secret', 'inutilisé')
+    const issues = sendSafetyIssues(CONFIG, envFor(f.real + '::$DATA'), f.real)
+    assert.ok(issues.includes(CONTENT_REFUSAL), JSON.stringify(issues))
+  })
+
+  test('aucun mot de passe n\'apparaît dans les messages', () => {
+    const f = files('vrai-secret-unique', 'vrai-secret-unique')
+    const text = sendSafetyIssues(CONFIG, envFor(f.fake), f.real).join('\n')
+    assert.ok(!text.includes('vrai-secret-unique'))
+  })
+})
+
+describe('SECRET_PATH', () => {
+  test('ne suit pas USERPROFILE ni HOME : il vient du compte système', () => {
+    const module = pathToFileURL(join(dirname(fileURLToPath(import.meta.url)), '..', 'src', 'lib', 'mail-config.ts')).href
+    const other = mkdtempSync(join(tmpdir(), 'nbeny-sales-home-'))
+    const out = execFileSync(process.execPath, ['--input-type=module', '-e', 'const m = await import(' + JSON.stringify(module) + '); process.stdout.write(m.SECRET_PATH)'], {
+      env: { ...process.env, USERPROFILE: other, HOME: other, NODE_OPTIONS: '' },
+      encoding: 'utf8',
+    })
+    assert.equal(out, SECRET_PATH)
+    assert.ok(!out.startsWith(other))
   })
 })

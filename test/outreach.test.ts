@@ -350,3 +350,9 @@ describe('commonIssues — destinataire', () => {
     assert.ok(issues.some((i) => i.includes('destinataire') && i.includes('U+200B')))
   })
 })
+
+describe('findHiddenCharacters — séparateurs de ligne et de paragraphe', () => {
+  test('U+2028 et U+2029 : signalés', () => {
+    assert.deepEqual(findHiddenCharacters('a' + String.fromCodePoint(0x2028) + 'b' + String.fromCodePoint(0x2029)), ['U+2028', 'U+2029'])
+  })
+})
