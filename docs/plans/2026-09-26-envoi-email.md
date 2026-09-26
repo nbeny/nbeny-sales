@@ -1679,11 +1679,23 @@ par :
 ```json
     "ask": [
       "Bash(git push *)",
+      "Bash(node src/cli.ts outreach:send *)"
+    ],
+    "deny": [
       "Bash(node src/cli.ts outreach:approve *)",
-      "Bash(node src/cli.ts outreach:send *)",
-      "Bash(node src/cli.ts outreach:clear-sending *)"
+      "Bash(node src/cli.ts outreach:clear-sending *)",
+      "Bash(NBENY_SALES_* *)",
+      "Bash(* NBENY_SALES_*)",
+      "Bash(USERPROFILE=* *)",
+      "Bash(HOME=* *)",
+      "Bash(mklink *)",
+      "Bash(cmd /c mklink *)"
     ]
 ```
+
+`approve` et `clear-sending` exigent un terminal interactif : l'outil Bash de Claude n'en a pas, les interdire ne retire donc rien à Nicolas, qui les lance dans son propre terminal. `send` reste en `ask` pour qu'il puisse demander à Claude d'envoyer ses messages approuvés. Les variables `NBENY_SALES_*` servent aux tests (`node --test` les pose lui-même) : aucun agent n'a à les écrire en ligne de commande.
+
+Vérifier que la clé `"deny"` n'existait pas déjà dans le fichier ; si oui, fusionner les listes.
 
 - [ ] **Step 2 : CLAUDE.md**
 
