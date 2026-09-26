@@ -111,7 +111,8 @@ DRAFT ──outreach:set-recipient──▶ DRAFT + to
 - **Caractères invisibles** : `subject`, `body` et le nom du destinataire
   refusent les caractères de contrôle (sauf saut de ligne et tabulation) et les
   caractères invisibles ou de direction Unicode. Ce que Nicolas lit à
-  l'approbation est exactement ce qui part. `
+  l'approbation est exactement ce qui part. `
+
 ` est normalisé en `
 ` à
   l'entrée.
@@ -221,8 +222,12 @@ comportement reste celui de `mark-sent`.
   une adresse lue.
 - `.claude/agents/ceo-agent.md` et la commande `/sales` : la synthèse liste les
   messages `APPROVED` en attente d'envoi.
-- `.claude/settings.json` : règles `ask` sur `outreach:approve`,
-  `outreach:send` et `outreach:clear-sending`.
+- `.claude/settings.json` : `outreach:approve` et `outreach:clear-sending` en
+  `deny` (ils exigent un terminal, que l'outil Bash de Claude n'a pas : les
+  interdire ne retire rien à Nicolas) ; `outreach:send` en `ask` ; préfixes
+  `NBENY_SALES_*`, `USERPROFILE=`, `HOME=` et `mklink` en `deny`. Ces règles
+  sont une seconde couche : la garantie tient dans la confirmation au clavier
+  et dans `sendSafetyIssues`.
 
 ## Tests (`node --test`)
 
