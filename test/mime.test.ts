@@ -74,6 +74,43 @@ describe('buildMessage', () => {
     const generated = buildMessage({ from: { email: 'nicolas@urbanlink.fr', name: 'N' }, to: { email: 'a@b.example' }, subject: 's', body: 'b', date: new Date() })
     assert.match(generated.messageId, /^<[0-9a-f-]{36}@urbanlink\.fr>$/)
   })
+
+  const base = {
+    from: { email: 'nicolas@urbanlink.fr', name: 'Nicolas BENY' },
+    to: { email: 'rh@acme.example' },
+    subject: 'Votre annonce Node.js',
+    body: 'Bonjour,\n\n.ligne qui commence par un point\n\nNicolas',
+    date: new Date('2026-09-28T10:00:00Z'),
+    messageId: '<fixe@urbanlink.fr>',
+  }
+
+  test('injection Bcc via l\'adresse destinataire refusée', () => {
+    assert.throws(
+      () => buildMessage({ ...base, to: { email: 'victim@example.com\r\nBcc: attacker@evil.com' } }),
+      /destinataire invalide/,
+    )
+  })
+
+  test('adresse expéditeur sans @ refusée', () => {
+    assert.throws(
+      () => buildMessage({ ...base, from: { email: 'nicolas-urbanlink.fr', name: 'Nicolas BENY' } }),
+      /expéditeur invalide/,
+    )
+  })
+
+  test('Message-ID contenant un saut de ligne refusé', () => {
+    assert.throws(
+      () => buildMessage({ ...base, messageId: '<x@y>\r\nBcc: a@b.c' }),
+      /Message-ID invalide/,
+    )
+  })
+
+  test('date invalide refusée', () => {
+    assert.throws(
+      () => buildMessage({ ...base, date: new Date('invalid') }),
+      /Date invalide/,
+    )
+  })
 })
 
 describe('formatAddress', () => {

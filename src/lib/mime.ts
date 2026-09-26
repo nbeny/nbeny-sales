@@ -70,7 +70,21 @@ export function encodeQuotedPrintable(text: string): string {
   return text.replace(/\r\n/g, '\n').split('\n').map(encodeQpLine).join('\r\n')
 }
 
+function assertSafeAddress(email: string, role: string): void {
+  if (!/^[\x21-\x7e]+$/.test(email) || !email.includes('@') || email.includes('<') || email.includes('>')) {
+    throw new Error('Adresse ' + role + ' invalide : ' + JSON.stringify(email))
+  }
+}
+
 export function buildMessage(input: MailInput): { messageId: string; raw: string } {
+  assertSafeAddress(input.from.email, 'expéditeur')
+  assertSafeAddress(input.to.email, 'destinataire')
+  if (input.messageId !== undefined && !/^<[\x21-\x3b\x3d\x3f-\x7e]+@[\x21-\x3b\x3d\x3f-\x7e]+>$/.test(input.messageId)) {
+    throw new Error('Message-ID invalide : ' + JSON.stringify(input.messageId))
+  }
+  if (Number.isNaN(input.date.getTime())) {
+    throw new Error('Date invalide pour le message.')
+  }
   const domain = input.from.email.split('@')[1]
   const messageId = input.messageId ?? '<' + randomUUID() + '@' + domain + '>'
   const headers = [
