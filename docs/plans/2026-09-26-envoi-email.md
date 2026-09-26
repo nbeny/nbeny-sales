@@ -1473,17 +1473,24 @@ async function outreachSend(): Promise<void> {
   const now = new Date()
   const events = readHistory() as HistoryEvent[]
   const ready: OutreachMessage[] = []
+  // Le délai entre deux messages à la même adresse vaut aussi à l'intérieur d'un lot.
+  const batchRecipients = new Set<string>()
   for (const id of ids) {
     const m = rows.find((r) => r.id === id)
     if (!m) { console.error('Message introuvable : ' + id); process.exitCode = 1; continue }
     const opportunity = opportunities.find((o) => o.id === m.opportunityId)
     const issues = sendIssues(m, { opportunity, events, outreach: rows, now, config, forceRecipient: has('force-recipient') })
+    const recipientKey = m.to?.email.trim().toLowerCase()
+    if (recipientKey && batchRecipients.has(recipientKey) && !has('force-recipient')) {
+      issues.push(m.to!.email + ' reçoit déjà un autre message de ce lot. --force-recipient pour passer outre.')
+    }
     if (issues.length) {
       console.error(m.id + ' ne part pas :')
       for (const i of issues) console.error('  - ' + i)
       process.exitCode = 2
       continue
     }
+    if (recipientKey) batchRecipients.add(recipientKey)
     ready.push(m)
   }
 
