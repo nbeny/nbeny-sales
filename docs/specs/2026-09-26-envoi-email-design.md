@@ -43,7 +43,8 @@ aujourd'hui.
 3. Champ optionnel `ratelimit` : appliqué par l'API Mailcow
    (`/api/v1/edit/rl-mbox`). C'est la borne côté serveur, indépendante de la
    CLI : un bug de boucle dans la CLI ne peut pas dépasser 20 messages par heure.
-4. Le README du rôle documente les deux champs.
+4. Les deux champs sont documentés en commentaire dans `defaults/main.yml`
+   (le rôle n'a pas de README ; c'est là que vit sa documentation).
 
 Déploiement : `ansible-playbook ansible/playbooks/42-mailcow.yml`, après avoir
 ajouté `PROSPECTION_MAIL_PASSWORD` dans `secrets.env`.
@@ -89,13 +90,23 @@ DRAFT ──outreach:set-recipient──▶ DRAFT + to
   Détaillé plus bas.
 - **Invalidation** : si `to`, `subject` ou `body` changent après approbation,
   l'empreinte ne correspond plus ; `send` refuse et le message doit être
-  réapprouvé. Aucune commande actuelle ne modifie un brouillon en place, mais la
-  vérification protège contre une édition future ou manuelle.
+  réapprouvé. `outreach:edit` et `outreach:set-recipient` effacent déjà
+  l'approbation ; l'empreinte couvre en plus une édition manuelle de `data/`.
+- **`outreach:edit <id> --file <json>`** (`subject` et/ou `body`) : seule façon
+  de corriger un brouillon, notamment pour remplacer un marqueur. Mêmes
+  validations que `outreach:add` ; repasse le message en `DRAFT` et efface
+  l'approbation. Refusé sur un message `SENT`.
+- **Confirmation au clavier** : `approve` et `clear-sending` exigent un
+  terminal interactif (`process.stdin.isTTY`) et que Nicolas tape l'identifiant
+  du message. Un agent lance ses commandes sans TTY : il ne peut pas approuver,
+  même si ses permissions l'autorisent à appeler la CLI (la tâche planifiée
+  pré-autorise `node src/cli.ts *`). C'est le verrou dur ; les règles `ask` de
+  `.claude/settings.json` en sont un second.
 - `outreach:mark-sent` reste pour les envois faits hors CLI.
 
 ### Nouveaux modules
 
-- **`src/lib/mime.ts`** — `buildMessage(draft, from, bcc, now) → { headers, raw }`.
+- **`src/lib/mime.ts`** — `buildMessage({ from, to, subject, body, date, messageId? }) → { messageId, raw }`.
   En-têtes `From`, `To`, `Subject` (RFC 2047, UTF-8, encodé seulement si non
   ASCII), `Date` (RFC 5322), `Message-ID: <uuid@urbanlink.fr>`,
   `MIME-Version`, `Content-Type: text/plain; charset=utf-8`,
@@ -163,7 +174,11 @@ la commande demande de vérifier le dossier Envoyés, puis de trancher avec
 recruteur coûte plus cher qu'un message en retard.
 
 **Échec SMTP** (4xx, 5xx, TLS, tunnel) : code et texte du serveur affichés
-tels quels, événement `outreach:send-failed`, le message reste `APPROVED`. Un
+tels quels, le message reste `APPROVED`. Si l'échec survient avant `DATA`, ou
+si le serveur refuse explicitement (code 4xx/5xx), c'est certain : événement
+`outreach:send-failed`. Sinon (délai ou coupure après le début de la
+transmission), on ne sait pas : événement `outreach:send-uncertain`, qui ne
+lève pas le blocage `sending`. Un
 lot s'arrête au premier échec d'authentification ou de tunnel, continue après
 un refus propre à un destinataire.
 
@@ -183,7 +198,8 @@ comportement reste celui de `mark-sent`.
   une adresse lue.
 - `.claude/agents/ceo-agent.md` et la commande `/sales` : la synthèse liste les
   messages `APPROVED` en attente d'envoi.
-- `.claude/settings.json` : `approve` et `send` ne sont **pas** pré-autorisés.
+- `.claude/settings.json` : règles `ask` sur `outreach:approve`,
+  `outreach:send` et `outreach:clear-sending`.
 
 ## Tests (`node --test`)
 
