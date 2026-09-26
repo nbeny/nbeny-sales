@@ -12,8 +12,11 @@
  */
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { createInterface } from 'node:readline/promises'
+import { setTimeout as pause } from 'node:timers/promises'
 import {
   appendHistory,
+  readHistory,
   readCollection,
   writeCollection,
   readConfig,
@@ -27,10 +30,15 @@ import { nextId } from './lib/ids.ts'
 import { fingerprint, findDuplicate, type DedupRow } from './lib/dedup.ts'
 import { transition, canTransition } from './lib/pipeline.ts'
 import { computeMatch, type KeywordsConfig, type LocationsConfig, type ScoringConfig, type ScoringContext } from './lib/scoring.ts'
-import { assertValidOpportunity, assertValidOutreach, lintOutreachBody, validateOpportunityInput, ValidationError } from './lib/validate.ts'
+import { assertValidOpportunity, assertValidOutreach, lintOutreachBody, validateOpportunityInput, validateRecipient, ValidationError } from './lib/validate.ts'
 import { buildDailyReport } from './lib/report.ts'
 import { filterOpportunities } from './lib/query.ts'
 import { formatCompact, formatDetailed } from './lib/format.ts'
+import { approvalHash, approvalIssues, orphanSendings, sendIssues, sentCountOn, type HistoryEvent } from './lib/outreach.ts'
+import { buildMessage } from './lib/mime.ts'
+import { sendMail, SmtpError } from './lib/smtp.ts'
+import { withTunnel } from './lib/tunnel.ts'
+import { readSmtpPassword, type MailConfig } from './lib/mail-config.ts'
 import type { Followup, FollowupStatus, Opportunity, OutreachMessage, Profile, StageName } from './lib/types.ts'
 
 const args = process.argv.slice(2)
@@ -49,7 +57,7 @@ function positional(index: number): string | undefined {
   return args.slice(1).filter((a) => !a.startsWith('--') && !isFlagValue(a))[index]
 }
 
-const FLAGS_WITH_VALUE = ['file', 'json', 'days', 'priority', 'stage', 'contract', 'note', 'floor', 'target', 'source', 'decision', 'currency', 'unit', 'limit', 'min-score', 'min-coverage', 'remote', 'location']
+const FLAGS_WITH_VALUE = ['file', 'json', 'days', 'priority', 'stage', 'contract', 'note', 'floor', 'target', 'source', 'decision', 'currency', 'unit', 'limit', 'min-score', 'min-coverage', 'remote', 'location', 'email', 'name']
 function isFlagValue(token: string): boolean {
   const i = args.indexOf(token)
   return i > 0 && args[i - 1].startsWith('--') && FLAGS_WITH_VALUE.includes(args[i - 1].slice(2))
@@ -327,6 +335,232 @@ function outreachMarkSent(): void {
   console.log(id + ' marqué comme envoyé. (Cette commande ne fait qu\'enregistrer : l\'envoi reste manuel.)')
 }
 
+function findOutreach(rows: OutreachMessage[], id: string | undefined): OutreachMessage {
+  const m = rows.find((r) => r.id === id)
+  if (!m) { console.error('Message introuvable : ' + id); process.exit(1) }
+  return m
+}
+
+/** Remet un message en brouillon : toute modification annule l'approbation. */
+function resetApproval(m: OutreachMessage): boolean {
+  const wasApproved = m.status === 'APPROVED'
+  m.status = 'DRAFT'
+  delete m.approvedAt
+  delete m.approvedHash
+  return wasApproved
+}
+
+/**
+ * Verrou dur : seules les commandes lancées depuis un terminal par Nicolas
+ * passent. Un agent n'a pas de TTY, quelles que soient ses permissions.
+ */
+async function confirmByTyping(expected: string, prompt: string): Promise<boolean> {
+  if (!process.stdin.isTTY) {
+    console.error('Cette commande demande une confirmation au clavier : elle se lance depuis un terminal, par Nicolas, jamais par un agent.')
+    return false
+  }
+  const rl = createInterface({ input: process.stdin, output: process.stdout })
+  try {
+    return (await rl.question(prompt)).trim() === expected
+  } finally {
+    rl.close()
+  }
+}
+
+function outreachSetRecipient(): void {
+  const id = positional(0)
+  const rows = readCollection<OutreachMessage>('outreach')
+  const m = findOutreach(rows, id)
+  if (m.status === 'SENT') { console.error(m.id + ' est déjà envoyé : son destinataire ne change plus.'); process.exit(2) }
+  const email = flag('email')?.trim()
+  const sourceUrl = flag('source')
+  const issues = validateRecipient({ email, sourceUrl })
+  if (issues.length) throw new ValidationError(issues)
+  const name = flag('name')
+  m.to = { email: email!, ...(name ? { name } : {}), sourceUrl: sourceUrl!, readAt: new Date().toISOString() }
+  const wasApproved = resetApproval(m)
+  writeCollection('outreach', rows)
+  appendHistory({ event: 'outreach:set-recipient', id: m.id, to: m.to.email, source: sourceUrl })
+  console.log(m.id + ' → ' + m.to.email + ' (lu sur ' + sourceUrl + ').' + (wasApproved ? ' L\'approbation précédente est annulée.' : ''))
+}
+
+function outreachEdit(): void {
+  const id = positional(0)
+  const input = payload()
+  const rows = readCollection<OutreachMessage>('outreach')
+  const m = findOutreach(rows, id)
+  if (m.status === 'SENT') { console.error(m.id + ' est déjà envoyé : il ne se modifie plus.'); process.exit(2) }
+  const subject = input.subject === undefined ? m.subject : String(input.subject)
+  const body = input.body === undefined ? m.body : String(input.body)
+  assertValidOutreach({ companyName: m.companyName, subject, body, reason: m.reason, sourceUrl: m.sourceUrl, channel: m.channel })
+  const lint = lintOutreachBody(body)
+  if (lint.length) {
+    console.error('Message refusé :')
+    for (const l of lint) console.error('  - ' + l)
+    process.exit(2)
+  }
+  m.subject = subject
+  m.body = body
+  const wasApproved = resetApproval(m)
+  writeCollection('outreach', rows)
+  appendHistory({ event: 'outreach:edit', id: m.id })
+  console.log(m.id + ' modifié, en DRAFT.' + (wasApproved ? ' L\'approbation précédente est annulée.' : '') + ' Relis-le : node src/cli.ts outreach:show ' + m.id)
+}
+
+async function outreachApprove(): Promise<void> {
+  const id = positional(0)
+  const config = readConfig<MailConfig>('mail')
+  const rows = readCollection<OutreachMessage>('outreach')
+  const m = findOutreach(rows, id)
+  const opportunity = readCollection<Opportunity>('opportunities').find((o) => o.id === m.opportunityId)
+  const issues = approvalIssues(m, opportunity)
+  if (issues.length) {
+    console.error('Approbation refusée :')
+    for (const i of issues) console.error('  - ' + i)
+    process.exit(2)
+  }
+  const to = m.to!
+  console.log([
+    'De     : ' + config.from.name + ' <' + config.from.email + '>',
+    'À      : ' + (to.name ? to.name + ' <' + to.email + '>' : to.email),
+    'Adresse lue sur : ' + to.sourceUrl,
+    'Objet  : ' + m.subject,
+    '',
+    m.body,
+    '',
+  ].join('\n'))
+  if (!(await confirmByTyping(m.id, 'Tape ' + m.id + ' pour approuver ce message tel quel : '))) {
+    console.log('Non approuvé.')
+    process.exit(2)
+  }
+  m.status = 'APPROVED'
+  m.approvedAt = new Date().toISOString()
+  m.approvedHash = approvalHash(m)
+  writeCollection('outreach', rows)
+  appendHistory({ event: 'outreach:approve', id: m.id, hash: m.approvedHash })
+  console.log(m.id + ' approuvé. Pour l\'envoyer : node src/cli.ts outreach:send ' + m.id + ' (--dry-run pour voir d\'abord)')
+}
+
+async function outreachClearSending(): Promise<void> {
+  const id = positional(0)
+  const m = findOutreach(readCollection<OutreachMessage>('outreach'), id)
+  if (!orphanSendings(readHistory() as HistoryEvent[]).includes(m.id)) {
+    console.log('Aucun envoi interrompu pour ' + m.id + '.')
+    return
+  }
+  console.log('À ne confirmer qu\'après avoir vérifié le dossier Envoyés et la copie cachée : ' + m.id + ' n\'est PAS parti.')
+  if (!(await confirmByTyping(m.id, 'Tape ' + m.id + ' pour confirmer : '))) {
+    console.log('Rien n\'a changé.')
+    process.exit(2)
+  }
+  appendHistory({ event: 'outreach:clear-sending', id: m.id })
+  console.log(m.id + ' peut de nouveau être envoyé.')
+}
+
+async function outreachSend(): Promise<void> {
+  const config = readConfig<MailConfig>('mail')
+  const rows = readCollection<OutreachMessage>('outreach')
+  const opportunities = readCollection<Opportunity>('opportunities')
+  const ids = has('all-approved')
+    ? rows.filter((r) => r.status === 'APPROVED').map((r) => r.id)
+    : [positional(0)].filter((id): id is string => !!id)
+  if (!ids.length) {
+    console.log(has('all-approved') ? 'Aucun message APPROVED en attente.' : 'Usage : outreach:send <id> | --all-approved [--dry-run] [--force-recipient]')
+    return
+  }
+
+  const now = new Date()
+  const events = readHistory() as HistoryEvent[]
+  const ready: OutreachMessage[] = []
+  // Le délai entre deux messages à la même adresse vaut aussi à l'intérieur d'un lot.
+  const batchRecipients = new Set<string>()
+  for (const id of ids) {
+    const m = rows.find((r) => r.id === id)
+    if (!m) { console.error('Message introuvable : ' + id); process.exitCode = 1; continue }
+    const opportunity = opportunities.find((o) => o.id === m.opportunityId)
+    const issues = sendIssues(m, { opportunity, events, outreach: rows, now, config, forceRecipient: has('force-recipient') })
+    const recipientKey = m.to?.email.trim().toLowerCase()
+    if (recipientKey && batchRecipients.has(recipientKey) && !has('force-recipient')) {
+      issues.push(m.to!.email + ' reçoit déjà un autre message de ce lot. --force-recipient pour passer outre.')
+    }
+    if (issues.length) {
+      console.error(m.id + ' ne part pas :')
+      for (const i of issues) console.error('  - ' + i)
+      process.exitCode = 2
+      continue
+    }
+    if (recipientKey) batchRecipients.add(recipientKey)
+    ready.push(m)
+  }
+
+  const remaining = Math.max(0, config.dailyCap - sentCountOn(events, now.toISOString().slice(0, 10)))
+  if (ready.length > remaining) {
+    console.log('Plafond de ' + config.dailyCap + ' envois par jour : ' + ready.slice(remaining).map((m) => m.id).join(', ') + ' attendront demain (toujours APPROVED).')
+    ready.splice(remaining)
+  }
+  if (!ready.length) return
+
+  const build = (m: OutreachMessage) => buildMessage({ from: config.from, to: m.to!, subject: m.subject, body: m.body, date: new Date() })
+  const recipients = (m: OutreachMessage) => [m.to!.email, ...(config.bccSelf ? [config.from.email] : [])]
+
+  if (has('dry-run')) {
+    for (const m of ready) {
+      console.log('=== ' + m.id + ' — enveloppe : ' + recipients(m).join(', ') + ' — rien n\'est envoyé (--dry-run)')
+      console.log(build(m).raw)
+    }
+    return
+  }
+
+  const pass = readSmtpPassword()
+  await withTunnel({ jumpHost: config.tunnel.jumpHost, target: config.smtp.host, targetPort: config.smtp.port }, async (localPort) => {
+    for (const [index, m] of ready.entries()) {
+      if (index > 0) {
+        console.log('Pause de ' + config.minDelaySeconds + ' s avant le suivant…')
+        await pause(config.minDelaySeconds * 1000)
+      }
+      const mail = build(m)
+      let dataStarted = false
+      try {
+        await sendMail({
+          host: '127.0.0.1',
+          port: localPort,
+          servername: config.smtp.servername,
+          tls: true,
+          user: config.from.email,
+          pass,
+          from: config.from.email,
+          rcpt: recipients(m),
+          raw: mail.raw,
+          onBeforeData: () => {
+            dataStarted = true
+            appendHistory({ event: 'outreach:sending', id: m.id, to: m.to!.email, messageId: mail.messageId })
+          },
+        })
+        const fresh = readCollection<OutreachMessage>('outreach')
+        const saved = fresh.find((r) => r.id === m.id)!
+        saved.status = 'SENT'
+        saved.sentAt = new Date().toISOString()
+        saved.messageId = mail.messageId
+        writeCollection('outreach', fresh)
+        appendHistory({ event: 'outreach:sent', id: m.id, to: m.to!.email, messageId: mail.messageId })
+        console.log('✅ ' + m.id + ' envoyé à ' + m.to!.email + ' ' + mail.messageId)
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error)
+        // Refus explicite du serveur, ou échec avant DATA : on sait que rien n'est parti.
+        const certain = !dataStarted || (error instanceof SmtpError && error.code >= 400)
+        appendHistory({ event: certain ? 'outreach:send-failed' : 'outreach:send-uncertain', id: m.id, error: reason })
+        console.error('❌ ' + m.id + ' : ' + reason)
+        if (!certain) console.error('   Coupure pendant la transmission : ' + m.id + ' reste bloqué jusqu\'à vérification du dossier Envoyés.')
+        process.exitCode = 1
+        if (!(error instanceof SmtpError && error.command.startsWith('RCPT TO'))) {
+          console.error('Lot arrêté.')
+          break
+        }
+      }
+    }
+  })
+}
+
 function followupAdd(): void {
   const input = payload()
   const rows = readCollection<Followup>('followups')
@@ -465,10 +699,15 @@ Prospection
   lead:add --file <json>
   market:add --file <json>
 
-Messages (jamais envoyés automatiquement)
+Messages (rien ne part sans l'approbation de Nicolas)
   outreach:add --file <json>          Crée un brouillon
+  outreach:edit <id> --file <json>    Corrige subject/body (annule l'approbation)
+  outreach:set-recipient <id> --email <adresse> --source <url> [--name "..."]
   outreach:list
   outreach:show <id>
+  outreach:approve <id>               Nicolas seul, au clavier
+  outreach:send <id> | --all-approved [--dry-run] [--force-recipient]
+  outreach:clear-sending <id>         Débloque un envoi interrompu (au clavier)
   outreach:mark-sent <id>             Enregistre un envoi fait à la main
 
 Suivi
@@ -484,7 +723,7 @@ Profil et rapports
 Le JSON peut aussi arriver sur stdin, ou via --json '<...>'.`)
 }
 
-const COMMANDS: Record<string, () => void> = {
+const COMMANDS: Record<string, () => void | Promise<void>> = {
   'opportunity:add': opportunityAdd,
   'opportunity:import': opportunityImport,
   'opportunity:list': opportunityList,
@@ -500,6 +739,11 @@ const COMMANDS: Record<string, () => void> = {
   'outreach:list': outreachList,
   'outreach:show': outreachShow,
   'outreach:mark-sent': outreachMarkSent,
+  'outreach:edit': outreachEdit,
+  'outreach:set-recipient': outreachSetRecipient,
+  'outreach:approve': outreachApprove,
+  'outreach:send': outreachSend,
+  'outreach:clear-sending': outreachClearSending,
   'followup:add': followupAdd,
   'followup:list': followupList,
   'followup:set': followupSet,
@@ -516,7 +760,7 @@ try {
     help()
     process.exit(1)
   }
-  run()
+  await run()
 } catch (error) {
   if (error instanceof ValidationError) {
     console.error(error.message)
