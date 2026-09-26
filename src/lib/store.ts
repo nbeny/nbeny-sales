@@ -3,7 +3,7 @@
  * atomique (fichier temporaire + rename) pour qu'une interruption ne laisse
  * jamais un JSON tronqué derrière elle.
  */
-import { readFileSync, writeFileSync, renameSync, mkdirSync, existsSync, appendFileSync } from 'node:fs'
+import { readFileSync, writeFileSync, renameSync, mkdirSync, existsSync, appendFileSync, readdirSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -59,4 +59,22 @@ export function appendHistory(event: Record<string, unknown>): void {
   const day = new Date().toISOString().slice(0, 10)
   const line = JSON.stringify({ at: new Date().toISOString(), ...event })
   appendFileSync(join(dir, day + '.jsonl'), line + '\n', 'utf8')
+}
+
+/** Relit tout le journal, dans l'ordre chronologique. Une ligne illisible est ignorée. */
+export function readHistory(): Record<string, unknown>[] {
+  const dir = join(DATA_DIR, 'history')
+  if (!existsSync(dir)) return []
+  const events: Record<string, unknown>[] = []
+  for (const file of readdirSync(dir).filter((f) => f.endsWith('.jsonl')).sort()) {
+    for (const line of readFileSync(join(dir, file), 'utf8').split('\n')) {
+      if (!line.trim()) continue
+      try {
+        events.push(JSON.parse(line))
+      } catch {
+        // Ligne tronquée par une interruption : elle ne doit pas bloquer la lecture du reste.
+      }
+    }
+  }
+  return events
 }

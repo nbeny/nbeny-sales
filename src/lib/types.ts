@@ -177,6 +177,13 @@ export interface OutreachMessage {
   createdAt: string
   sentAt?: string
   language: 'fr' | 'en'
+  /** Destinataire lu sur une page publique : jamais une adresse reconstituée. */
+  to?: { email: string; name?: string; sourceUrl: string; readAt: string }
+  approvedAt?: string
+  /** Empreinte de to + subject + body au moment où Nicolas a approuvé. */
+  approvedHash?: string
+  /** Message-ID de l'email réellement envoyé par outreach:send. */
+  messageId?: string
 }
 
 export type FollowupStatus =

@@ -130,7 +130,7 @@ export function validateOutreachInput(input: Record<string, unknown>): string[] 
     issues.push('`body` est trop court pour être un vrai message.')
   }
   if (input.status !== undefined && input.status !== 'DRAFT') {
-    issues.push('Un message est toujours créé en `DRAFT`. Seul `outreach:mark-sent`, lancé par un humain, peut le faire passer à `SENT`.')
+    issues.push('Un message est toujours créé en `DRAFT`. Seul Nicolas le fait avancer : `outreach:approve` puis `outreach:send`, ou `outreach:mark-sent` pour un envoi fait à la main.')
   }
   const channels = ['email', 'linkedin', 'form', 'other']
   if (input.channel !== undefined && !channels.includes(input.channel as string)) {
@@ -160,6 +160,27 @@ export function lintOutreachBody(body: string): string[] {
   return BANNED_PHRASES.filter((phrase) => lower.includes(phrase)).map(
     (phrase) => 'Formule générique détectée : « ' + phrase + ' ». Remplace-la par un fait précis sur l\'entreprise.',
   )
+}
+
+/**
+ * Marqueurs laissés dans un brouillon pour que Nicolas les complète
+ * (`[TJM à confirmer par Nicolas]`). Un message qui en contient ne s'approuve pas.
+ */
+export function findPlaceholders(text: string): string[] {
+  return text.match(/\[[^\]\n]{1,160}\]/g) ?? []
+}
+
+const EMAIL = /^[^\s@<>()",;:]+@[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}$/i
+
+export function validateRecipient(input: { email?: string; sourceUrl?: string }): string[] {
+  const issues: string[] = []
+  if (!input.email || !EMAIL.test(input.email.trim())) {
+    issues.push('`--email` doit être une adresse email complète.')
+  }
+  if (!isHttpUrl(input.sourceUrl)) {
+    issues.push('`--source` doit être l\'URL publique où cette adresse a été lue. Une adresse reconstituée (prenom.nom@…) n\'est pas une adresse lue.')
+  }
+  return issues
 }
 
 export function outreachRecordFrom(input: Record<string, unknown>): Partial<OutreachMessage> {
