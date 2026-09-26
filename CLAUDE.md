@@ -16,8 +16,9 @@ Système d'agents de prospection, matching et suivi pour le profil de Nicolas BE
    (`outreach:set-recipient`, URL obligatoire). Seul Nicolas approuve
    (`outreach:approve`, confirmation au clavier), message par message, et seuls
    les messages approuvés partent (`outreach:send`). Aucun agent n'appelle
-   `approve`, `send` ni `clear-sending`. Aucun message LinkedIn, aucune
-   candidature par formulaire.
+   `approve` ni `clear-sending` ; `send` ne part que sur demande explicite de
+   Nicolas, après confirmation. Aucun message LinkedIn, aucune candidature par
+   formulaire.
 4. **Ne jamais masquer un point faible.** Un score sans ses réserves est un
    mensonge par omission.
 5. **Ne jamais écrire dans `data/` à la main.** Tout passe par `node src/cli.ts`,
@@ -41,7 +42,7 @@ node src/cli.ts outreach:edit MSG-x --file x.json    # corrige, annule l'approba
 node src/cli.ts outreach:approve MSG-x        # Nicolas, au clavier
 node src/cli.ts outreach:clear-sending MSG-x  # Nicolas, au clavier
 node src/cli.ts outreach:send MSG-x --dry-run # puis sans --dry-run
-node --test "test/*.test.ts"               # 176 tests, sans dépendance
+node --test "test/*.test.ts"               # 189 tests, sans dépendance
 ```
 
 ## Slash commands

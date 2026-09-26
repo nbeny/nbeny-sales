@@ -10,13 +10,10 @@
  *   node src/cli.ts match:all
  *   node src/cli.ts report:daily
  */
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { closeSync, openSync, readFileSync, unlinkSync, writeSync } from 'node:fs'
+import { join, resolve as resolvePath } from 'node:path'
 import { createInterface } from 'node:readline/promises'
 import { setTimeout as pause } from 'node:timers/promises'
-import { closeSync, openSync, unlinkSync, writeSync } from 'node:fs'
-import { resolve as resolvePath } from 'node:path'
-import { CONFIG_DIR } from './lib/store.ts'
 import {
   appendHistory,
   readHistory,
@@ -27,6 +24,7 @@ import {
   writeJson,
   writeText,
   DATA_DIR,
+  CONFIG_DIR,
   REPORTS_DIR,
 } from './lib/store.ts'
 import { nextId } from './lib/ids.ts'
@@ -37,7 +35,7 @@ import { assertValidOpportunity, assertValidOutreach, lintOutreachBody, validate
 import { buildDailyReport } from './lib/report.ts'
 import { filterOpportunities } from './lib/query.ts'
 import { formatCompact, formatDetailed } from './lib/format.ts'
-import { approvalHash, approvalIssues, orphanSendings, sendIssues, sentCountOn, type HistoryEvent } from './lib/outreach.ts'
+import { approvalHash, approvalIssues, orphanSendings, sendIssues, sentCountOn, sentEvidence, type HistoryEvent } from './lib/outreach.ts'
 import { buildMessage } from './lib/mime.ts'
 import { sendMail, SmtpError } from './lib/smtp.ts'
 import { withTunnel } from './lib/tunnel.ts'
@@ -324,17 +322,28 @@ function outreachShow(): void {
   const id = positional(0)
   const m = readCollection<OutreachMessage>('outreach').find((r) => r.id === id)
   if (!m) { console.error('Message introuvable : ' + id); process.exit(1) }
-  console.log('# ' + m.id + ' — ' + m.companyName + ' (' + m.channel + ' / ' + m.audience + ') — ' + m.status)
-  console.log('Source : ' + m.sourceUrl)
-  console.log('Pourquoi : ' + m.reason)
-  console.log('\nObjet : ' + m.subject + '\n')
-  console.log(m.body)
+  // Tout passe par escapeForDisplay, comme à l'approbation : rien d'affiché ne pilote le terminal.
+  const show = (text: string) => escapeForDisplay(text)
+  const to = m.to
+  console.log('# ' + m.id + ' — ' + show(m.companyName) + ' (' + m.channel + ' / ' + m.audience + ') — ' + m.status)
+  console.log('Destinataire : ' + (to ? show(to.name ? to.name + ' <' + to.email + '>' : to.email) : 'aucun (outreach:set-recipient ' + m.id + ')'))
+  if (to) console.log('Adresse lue sur : ' + show(to.sourceUrl) + ' (le ' + to.readAt.slice(0, 10) + ')')
+  if (m.approvedAt) console.log('Approuvé le : ' + m.approvedAt)
+  if (m.sentAt) console.log('Envoyé le : ' + m.sentAt)
+  if (m.messageId) console.log('Message-ID : ' + show(m.messageId))
+  console.log('Source : ' + show(m.sourceUrl))
+  console.log('Pourquoi : ' + show(m.reason))
+  console.log('\nObjet : ' + show(m.subject) + '\n')
+  console.log(escapeForDisplay(m.body, true))
 }
 
 function outreachList(): void {
   const rows = readCollection<OutreachMessage>('outreach')
   if (!rows.length) { console.log('Aucun message.'); return }
-  for (const m of rows) console.log([m.id, m.status.padEnd(8), m.channel.padEnd(9), m.companyName, '—', m.subject].join('  '))
+  for (const m of rows) {
+    const to = m.to ? escapeForDisplay(m.to.email) : '—'
+    console.log([m.id, m.status.padEnd(8), m.channel.padEnd(9), to, escapeForDisplay(m.companyName), '—', escapeForDisplay(m.subject)].join('  '))
+  }
 }
 
 function outreachMarkSent(): void {
@@ -347,7 +356,7 @@ function outreachMarkSent(): void {
   m.sentAt = new Date().toISOString()
   writeCollection('outreach', rows)
   appendHistory({ event: 'outreach:mark-sent', id })
-  console.log(id + ' marqué comme envoyé. (Cette commande ne fait qu\'enregistrer : l\'envoi reste manuel.)')
+  console.log(id + ' marqué comme envoyé. (envoi fait hors de la CLI : enregistré seulement)')
 }
 
 function findOutreach(rows: OutreachMessage[], id: string | undefined): OutreachMessage {
@@ -417,7 +426,8 @@ function outreachEdit(): void {
   const body = input.body === undefined ? m.body : String(normalizeNewlines(String(input.body)))
   assertValidOutreach({ companyName: m.companyName, subject, body, reason: m.reason, sourceUrl: m.sourceUrl, channel: m.channel })
   const lint = lintOutreachBody(body)
-  if (lint.length) {
+  // Comme outreach:add : les formules génériques sont un avertissement, --force passe outre.
+  if (lint.length && !has('force')) {
     console.error('Message refusé :')
     for (const l of lint) console.error('  - ' + l)
     process.exit(2)
@@ -487,7 +497,7 @@ async function outreachClearSending(): Promise<void> {
     console.log('Aucun envoi interrompu pour ' + m.id + '.')
     return
   }
-  console.log('À ne confirmer qu\'après avoir vérifié le dossier Envoyés et la copie cachée : ' + m.id + ' n\'est PAS parti.')
+  console.log('À ne confirmer qu\'après avoir vérifié ' + sentEvidence(readConfig<MailConfig>('mail')) + ' : ' + m.id + ' n\'est PAS parti.')
   if (!(await confirmByTyping(m.id, 'Tape ' + m.id + ' pour confirmer : '))) {
     console.log('Rien n\'a changé.')
     process.exit(2)
@@ -506,7 +516,7 @@ async function outreachClearSending(): Promise<void> {
  * simultanés liraient le même état et pourraient envoyer deux fois.
  * `.json` pour que `data/*.json` l'ignore dans git.
  */
-function acquireSendLock(): () => void {
+function acquireSendLock(config: MailConfig): () => void {
   const path = join(DATA_DIR, 'send.lock.json')
   let fd: number
   try {
@@ -523,7 +533,7 @@ function acquireSendLock(): () => void {
     }
     // Refus dans les deux cas : un processus disparu a pu être coupé en plein envoi.
     console.error(gone
-      ? 'Verrou d\'envoi présent (' + path + ', ' + content + ') mais le processus ' + pid + ' n\'existe plus. Vérifie le dossier Envoyés, puis supprime ce fichier.'
+      ? 'Verrou d\'envoi présent (' + path + ', ' + content + ') mais le processus ' + pid + ' n\'existe plus. Vérifie ' + sentEvidence(config) + ', puis supprime ce fichier.'
       : 'Un envoi est déjà en cours (verrou ' + path + ', ' + content + '). S\'il n\'y en a pas, supprime ce fichier.')
     process.exit(2)
   }
@@ -557,7 +567,7 @@ async function outreachSend(): Promise<void> {
       process.exit(2)
     }
   }
-  const release = has('dry-run') ? () => undefined : acquireSendLock()
+  const release = has('dry-run') ? () => undefined : acquireSendLock(config)
   try {
     // Premier tri, sous le verrou. Chaque message est revérifié juste avant son envoi.
     const rows = readCollection<OutreachMessage>('outreach')
@@ -607,7 +617,8 @@ async function outreachSend(): Promise<void> {
     }
 
     // Le chemin du fichier secret peut être remplacé (tests) ; le mot de passe, lui, n'est jamais dans l'environnement.
-    const pass = readSmtpPassword(process.env.NBENY_SALES_SMTP_ENV ?? SECRET_PATH)
+    // Variable vide = absente, comme dans sendSafetyIssues.
+    const pass = readSmtpPassword(process.env.NBENY_SALES_SMTP_ENV || SECRET_PATH)
     const tls = config.smtp.tls ?? true
     const attempted = new Set<string>()
 
@@ -670,7 +681,7 @@ async function outreachSend(): Promise<void> {
           const certain = !dataStarted || (error instanceof SmtpError && error.code >= 400)
           appendHistory({ event: certain ? 'outreach:send-failed' : 'outreach:send-uncertain', id: m.id, error: reason })
           console.error('❌ ' + m.id + ' : ' + reason)
-          if (!certain) console.error('   Coupure pendant la transmission : ' + m.id + ' reste bloqué jusqu\'à vérification du dossier Envoyés.')
+          if (!certain) console.error('   Coupure pendant la transmission : ' + m.id + ' reste bloqué jusqu\'à vérification de ' + sentEvidence(config) + '.')
           process.exitCode = 1
           // Seul le refus explicite de CE destinataire laisse la connexion au serveur saine pour les suivants.
           const recipientRefused = error instanceof SmtpError && error.code >= 400 && error.command === 'RCPT TO:<' + to.email + '>'
@@ -762,6 +773,7 @@ function reportDaily(): void {
     companies: readCollection('companies'),
     market: readCollection('market'),
     windowDays: Number(flag('days') ?? 1),
+    interruptedSends: orphanSendings(readHistory() as HistoryEvent[]),
   })
   const day = date.slice(0, 10)
   writeText(join(REPORTS_DIR, day + '.md'), markdown)
@@ -812,7 +824,12 @@ function stats(): void {
   console.log('Opportunités : ' + opps.length + '  (HIGH ' + by('HIGH') + ' · MEDIUM ' + by('MEDIUM') + ' · LOW ' + by('LOW') + ')')
   console.log('Entreprises  : ' + readCollection('companies').length)
   console.log('Leads        : ' + readCollection('leads').length)
-  console.log('Messages     : ' + readCollection<OutreachMessage>('outreach').filter((m) => m.status === 'DRAFT').length + ' en brouillon')
+  const messages = readCollection<OutreachMessage>('outreach')
+  const count = (status: OutreachMessage['status']) => messages.filter((m) => m.status === status).length
+  const noRecipient = messages.filter((m) => m.status === 'DRAFT' && !m.to).length
+  const interrupted = orphanSendings(readHistory() as HistoryEvent[]).length
+  console.log('Messages     : DRAFT ' + count('DRAFT') + ' · APPROVED ' + count('APPROVED') + ' · SENT ' + count('SENT') +
+    '  (' + noRecipient + ' sans destinataire, ' + interrupted + ' envoi' + (interrupted > 1 ? 's' : '') + ' interrompu' + (interrupted > 1 ? 's' : '') + ')')
   console.log('Suivis       : ' + readCollection('followups').length)
 }
 
@@ -843,7 +860,8 @@ Prospection
 
 Messages (rien ne part sans l'approbation de Nicolas)
   outreach:add --file <json>          Crée un brouillon
-  outreach:edit <id> --file <json>    Corrige subject/body (annule l'approbation)
+  outreach:edit <id> --file <json> [--force]
+                                      Corrige subject/body (annule l'approbation)
   outreach:set-recipient <id> --email <adresse> --source <url> [--name "..."]
   outreach:list
   outreach:show <id>

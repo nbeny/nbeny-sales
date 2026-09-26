@@ -34,6 +34,11 @@ export function approvalHash(m: Pick<OutreachMessage, 'to' | 'subject' | 'body'>
     .slice(0, 16)
 }
 
+/** Où vérifier qu'un message interrompu est parti : l'envoi SMTP ne laisse aucune copie dans le dossier des messages envoyés. */
+export function sentEvidence(config: Pick<MailConfig, 'from'>): string {
+  return 'la copie cachée dans la boîte de réception de ' + config.from.email + ' (ou le journal Postfix)'
+}
+
 function isClosed(opportunity: Opportunity | undefined): opportunity is Opportunity {
   return !!opportunity && (TERMINAL_STAGES as readonly string[]).includes(opportunity.stage)
 }
@@ -112,8 +117,9 @@ export function sendIssues(m: OutreachMessage, ctx: SendContext): string[] {
   }
   if (orphanSendings(ctx.events).includes(m.id)) {
     issues.push(
-      'Un envoi de ' + m.id + ' a été interrompu : on ne sait pas s\'il est parti. Vérifie le dossier Envoyés, puis outreach:mark-sent ' +
-        m.id + ' ou outreach:clear-sending ' + m.id + '.',
+      // L'envoi SMTP ne dépose aucune copie dans le dossier des messages envoyés : la preuve est la copie cachée.
+      'Un envoi de ' + m.id + ' a été interrompu : on ne sait pas s\'il est parti. Vérifie ' + sentEvidence(ctx.config) +
+        ', puis outreach:mark-sent ' + m.id + ' ou outreach:clear-sending ' + m.id + '.',
     )
   }
   if (m.to && !ctx.forceRecipient) {

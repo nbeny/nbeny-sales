@@ -16,6 +16,30 @@ export interface ReportInput {
   market: { id: string; headline: string; sourceUrl: string; observedAt: string; whyItMatters?: string }[]
   /** Nombre de jours en arrière considérés comme « nouveau ». */
   windowDays?: number
+  /** Messages dont l'envoi a été interrompu (`orphanSendings` sur le journal) : calculés par l'appelant, le rendu reste pur. */
+  interruptedSends?: string[]
+}
+
+/** Où vérifier qu'un message est parti : l'envoi SMTP ne dépose rien dans le dossier des messages envoyés. */
+const EVIDENCE = 'la copie cachée dans la boîte de réception de nicolas@urbanlink.fr (ou le journal Postfix)'
+
+function recipientLabel(m: OutreachMessage): string {
+  return m.to ? (m.to.name ? m.to.name + ' <' + m.to.email + '>' : m.to.email) : 'sans destinataire'
+}
+
+function draftLine(m: OutreachMessage): string {
+  let next: string
+  if (m.channel !== 'email') {
+    next = 'canal ' + m.channel + ' : rien ne part par la CLI. Envoyer à la main, puis `node src/cli.ts outreach:mark-sent ' + m.id + '`'
+  } else if (!m.to) {
+    next = 'trouver l\'adresse sur une page publique, puis `node src/cli.ts outreach:set-recipient ' + m.id + ' --email <adresse> --source <url>`'
+  } else {
+    next = 'relire et approuver dans un terminal : `node src/cli.ts outreach:approve ' + m.id + '`'
+  }
+  return '- `' + m.id + '` → **' + m.companyName + '** (' + m.channel + ', ' + m.audience + ') · ' + recipientLabel(m) +
+    '\n  - Objet : ' + m.subject +
+    '\n  - Pourquoi : ' + m.reason +
+    '\n  - Suite : ' + next
 }
 
 const BADGE = { HIGH: '🔥', MEDIUM: '🟠', LOW: '⚪' } as const
@@ -71,6 +95,9 @@ export function buildDailyReport(input: ReportInput): string {
     .slice(0, 6)
 
   const drafts = input.outreach.filter((m) => m.status === 'DRAFT')
+  const approved = input.outreach.filter((m) => m.status === 'APPROVED')
+  const sent = input.outreach.filter((m) => m.status === 'SENT')
+  const interrupted = input.interruptedSends ?? []
   const dueFollowups = input.followups.filter(
     (f) => f.nextActionAt && Date.parse(f.nextActionAt) <= now.getTime() && !['WON', 'LOST'].includes(f.status),
   )
@@ -105,12 +132,26 @@ export function buildDailyReport(input: ReportInput): string {
       input.market.slice(0, 8).map((s) => '- ' + s.headline + ' — [source](' + s.sourceUrl + ') · ' + s.observedAt.slice(0, 10) + (s.whyItMatters ? '\n  - Pourquoi c\'est pertinent : ' + s.whyItMatters : '')),
     ),
   )
+  parts.push(section('✉️ Brouillons à relire (NON envoyés)', drafts.map(draftLine)))
   parts.push(
     section(
-      '✉️ Messages prêts (NON envoyés)',
-      drafts.map(
-        (m) => '- `' + m.id + '` → **' + m.companyName + '** (' + m.channel + ', ' + m.audience + ')\n  - Objet : ' + m.subject + '\n  - Pourquoi : ' + m.reason + '\n  - Valider puis envoyer à la main, puis : `node src/cli.ts outreach:mark-sent ' + m.id + '`',
+      '📤 Approuvés, en attente d\'envoi',
+      approved.map(
+        (m) => '- `' + m.id + '` → **' + m.companyName + '** · ' + recipientLabel(m) +
+          '\n  - Objet : ' + m.subject +
+          '\n  - Suite : `node src/cli.ts outreach:send ' + m.id + ' --dry-run`, puis sans `--dry-run`',
       ),
+    ),
+  )
+  parts.push(
+    section(
+      '⚠️ Envois interrompus',
+      interrupted.map((id) => {
+        const m = input.outreach.find((o) => o.id === id)
+        return '- `' + id + '`' + (m ? ' → **' + m.companyName + '** · ' + recipientLabel(m) : '') +
+          '\n  - On ne sait pas s\'il est parti. Vérifier ' + EVIDENCE +
+          ', puis `node src/cli.ts outreach:mark-sent ' + id + '` (parti) ou `node src/cli.ts outreach:clear-sending ' + id + '` (pas parti)'
+      }),
     ),
   )
   parts.push(
@@ -133,6 +174,10 @@ export function buildDailyReport(input: ReportInput): string {
       '| Opportunités qualifiées (HIGH ou MEDIUM) | ' + qualified + ' |',
       '| Entreprises en prospection | ' + input.companies.length + ' |',
       '| Messages en brouillon | ' + drafts.length + ' |',
+      '| Brouillons sans destinataire | ' + drafts.filter((m) => !m.to).length + ' |',
+      '| Messages approuvés en attente | ' + approved.length + ' |',
+      '| Messages envoyés | ' + sent.length + ' |',
+      '| Envois interrompus | ' + interrupted.length + ' |',
       '| Contacts engagés | ' + contacted + ' |',
       '| Réponses obtenues | ' + replied + ' |',
       '| Entretiens | ' + interviews + ' |',

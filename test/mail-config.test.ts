@@ -1,12 +1,24 @@
-import { test, describe } from 'node:test'
+import { after, test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { linkSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { linkSync, mkdtempSync as makeTempDir, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 import { parseEnv, readSmtpPassword, SECRET_PATH, sendSafetyIssues, testOverridesActive, type MailConfig } from '../src/lib/mail-config.ts'
+
+/** Dossiers temporaires créés par les tests, supprimés à la fin du fichier. */
+const tempDirs: string[] = []
+after(() => {
+  for (const dir of tempDirs) rmSync(dir, { recursive: true, force: true })
+})
+
+function mkdtempSync(prefix: string): string {
+  const dir = makeTempDir(prefix)
+  tempDirs.push(dir)
+  return dir
+}
 
 describe('parseEnv', () => {
   test('ignore commentaires et lignes vides, garde les = dans la valeur, retire les guillemets', () => {
@@ -84,6 +96,10 @@ describe('sendSafetyIssues', () => {
   test('TLS coupé vers un hôte distant, même avec dossiers de test : refusé', () => {
     const remote = { ...TEST, smtp: { ...TEST.smtp, host: '10.9.9.9' } }
     assert.deepEqual(sendSafetyIssues(remote, { ...overrides, NBENY_SALES_SMTP_ENV: join(tmpdir(), 'x', 'smtp.env') }, SECRET), [CONFIG_REFUSAL])
+  })
+
+  test('NBENY_SALES_SMTP_ENV vide avec dossiers de test : traité comme absent, refusé', () => {
+    assert.deepEqual(sendSafetyIssues(TEST, { ...overrides, NBENY_SALES_SMTP_ENV: '' }, SECRET), [PASSWORD_REFUSAL])
   })
 
   test('variables vides : considérées comme absentes', () => {

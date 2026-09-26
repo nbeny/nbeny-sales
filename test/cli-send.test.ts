@@ -3,10 +3,10 @@
  * processus séparé, contre un faux serveur SMTP local et une base temporaire.
  * La vraie base (data/) n'est jamais touchée : NBENY_SALES_DATA_DIR la remplace.
  */
-import { test, describe } from 'node:test'
+import { after, test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -31,8 +31,15 @@ interface Run {
   stderr: string
 }
 
+/** Dossiers temporaires créés par les tests, supprimés à la fin du fichier. */
+const roots: string[] = []
+after(() => {
+  for (const root of roots) rmSync(root, { recursive: true, force: true })
+})
+
 function setup(port: number, over: Record<string, unknown> = {}): Env {
   const root = mkdtempSync(join(tmpdir(), 'nbeny-sales-send-'))
+  roots.push(root)
   const dataDir = join(root, 'data')
   const configDir = join(root, 'config')
   mkdirSync(join(dataDir, 'history'), { recursive: true })
@@ -230,7 +237,7 @@ describe('outreach:send (intégration)', () => {
       const run = await cli(env, 'outreach:send', 'MSG-2026-0001')
       assert.equal(run.code, 2)
       assert.match(run.stderr, /le processus 999999 n'existe plus/)
-      assert.match(run.stderr, /dossier Envoyés/)
+      assert.match(run.stderr, /copie cachée dans la boîte de réception/)
       assert.equal(fake.received.length, 0)
       assert.equal(existsSync(lock), true)
     } finally {
@@ -299,11 +306,13 @@ describe('outreach:send (intégration)', () => {
       assert.equal(first.code, 1)
       const events = readEvents(env).map((e) => e.event)
       assert.deepEqual(events, ['outreach:sending', 'outreach:send-uncertain'])
+      assert.ok(first.stderr.includes('copie cachée dans la boîte de réception de nicolas@urbanlink.fr (ou le journal Postfix)'), first.stderr)
       assert.equal(readOutreach(env)[0].status, 'APPROVED')
 
       const second = await cli(env, 'outreach:send', 'MSG-2026-0001')
       assert.equal(second.code, 2)
       assert.match(second.stderr, /interrompu/)
+      assert.ok(second.stderr.includes('copie cachée dans la boîte de réception de nicolas@urbanlink.fr'), second.stderr)
       assert.equal(dataCommands(fake), 1)
     } finally {
       await fake.close()
@@ -323,5 +332,68 @@ describe('outreach:send (intégration)', () => {
     } finally {
       await fake.close()
     }
+  })
+})
+
+describe('outreach:show, outreach:list, stats (intégration, lecture seule)', () => {
+  const ESC = String.fromCharCode(0x1b)
+
+  test('show : destinataire, statut, dates, Message-ID, et objet échappé', async () => {
+    const env = setup(2525)
+    const m = approved('MSG-2026-0001', 'rh@acme.example')
+    m.to = { ...m.to!, name: 'Élodie Martin' }
+    m.status = 'SENT'
+    m.sentAt = '2026-09-27T10:00:00Z'
+    m.messageId = '<abc@urbanlink.fr>'
+    m.subject = 'Sujet' + ESC + '[2J piégé'
+    writeOutreach(env, [m])
+    const run = await cli(env, 'outreach:show', 'MSG-2026-0001')
+    assert.equal(run.code, 0, run.stderr)
+    assert.match(run.stdout, /SENT/)
+    assert.match(run.stdout, /Élodie Martin <rh@acme\.example>/)
+    assert.match(run.stdout, /https:\/\/acme\.example\/contact/)
+    assert.match(run.stdout, /2026-09-25T12:00:00Z/)
+    assert.match(run.stdout, /2026-09-27T10:00:00Z/)
+    assert.match(run.stdout, /<abc@urbanlink\.fr>/)
+    assert.ok(run.stdout.includes('Sujet\\u{001B}[2J'))
+    assert.ok(!run.stdout.includes(ESC))
+  })
+
+  test('show sans destinataire : le dit', async () => {
+    const env = setup(2525)
+    const m = approved('MSG-2026-0001', 'rh@acme.example')
+    delete m.to
+    m.status = 'DRAFT'
+    writeOutreach(env, [m])
+    const run = await cli(env, 'outreach:show', 'MSG-2026-0001')
+    assert.match(run.stdout, /Destinataire : aucun/)
+  })
+
+  test('list : colonne destinataire, tiret quand il n\'y en a pas', async () => {
+    const env = setup(2525)
+    const without = approved('MSG-2026-0002', 'x@y.example')
+    delete without.to
+    without.status = 'DRAFT'
+    writeOutreach(env, [approved('MSG-2026-0001', 'rh@acme.example'), without])
+    const run = await cli(env, 'outreach:list')
+    const lines = run.stdout.trim().split('\n')
+    assert.match(lines.find((l) => l.startsWith('MSG-2026-0001'))!, /rh@acme\.example/)
+    assert.match(lines.find((l) => l.startsWith('MSG-2026-0002'))!, / — /)
+  })
+
+  test('stats : comptes par statut, sans destinataire, interrompus', async () => {
+    const env = setup(2525)
+    const draft = approved('MSG-2026-0001', 'a@b.example')
+    draft.status = 'DRAFT'
+    delete draft.to
+    const sent = approved('MSG-2026-0003', 'c@d.example')
+    sent.status = 'SENT'
+    writeOutreach(env, [draft, approved('MSG-2026-0002', 'rh@acme.example'), sent])
+    writeHistory(env, [{ at: new Date().toISOString(), event: 'outreach:sending', id: 'MSG-2026-0002' }])
+    const run = await cli(env, 'stats')
+    assert.equal(run.code, 0, run.stderr)
+    assert.match(run.stdout, /DRAFT 1 · APPROVED 1 · SENT 1/)
+    assert.match(run.stdout, /1 sans destinataire/)
+    assert.match(run.stdout, /1 envoi interrompu/)
   })
 })

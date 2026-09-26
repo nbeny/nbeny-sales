@@ -193,7 +193,9 @@ de tunnel.
 `DATA` ; le passage à `SENT` (avec `sentAt`, `messageId`) et l'événement
 `outreach:sent` suivent la réponse 250. Si le processus meurt entre les deux,
 on ne sait pas si le message est parti : le garde-fou 3 bloque le message et
-la commande demande de vérifier le dossier Envoyés, puis de trancher avec
+la commande demande de vérifier la copie cachée dans la boîte de réception de
+nicolas@urbanlink.fr (ou le journal Postfix) — l'envoi SMTP ne dépose aucune
+copie dans le dossier des messages envoyés —, puis de trancher avec
 `outreach:mark-sent` ou `outreach:clear-sending <id>`. Un doublon chez un
 recruteur coûte plus cher qu'un message en retard.
 

@@ -356,3 +356,11 @@ describe('findHiddenCharacters — séparateurs de ligne et de paragraphe', () =
     assert.deepEqual(findHiddenCharacters('a' + String.fromCodePoint(0x2028) + 'b' + String.fromCodePoint(0x2029)), ['U+2028', 'U+2029'])
   })
 })
+
+describe('sendIssues — où vérifier un envoi interrompu', () => {
+  test('la copie cachée dans la boîte de réception de l\'expéditeur, ou le journal Postfix (pas le dossier Envoyés)', () => {
+    const issue = sendIssues(approved(), ctx({ events: [ev('outreach:sending')] })).find((i) => i.includes('interrompu'))!
+    assert.ok(issue.includes('copie cachée dans la boîte de réception de nicolas@urbanlink.fr (ou le journal Postfix)'), issue)
+    assert.ok(!issue.includes('Envoyés'))
+  })
+})
