@@ -42,6 +42,10 @@ export interface Place {
   priority: number
   travelMinutes: number
   maxOnsiteDays: number
+  /** Présentiel accepté par Nicolas : sous `maxOnsiteDays`, il n'est pas un point faible. */
+  onsiteAccepted?: boolean
+  /** Région ou pays : ne l'emporte jamais sur une ville citée dans le même lieu. */
+  broad?: boolean
   note?: string
 }
 
@@ -109,15 +113,26 @@ function has(list: string[], tech: string): boolean {
 }
 
 function matchPlace(locations: LocationsConfig, location: string): Place | undefined {
-  const needle = normalize(location)
-  let best: Place | undefined
+  const needle = ' ' + normalize(location) + ' '
+  const hits: { place: Place; start: number; end: number }[] = []
   for (const place of locations.places) {
     for (const label of place.labels) {
-      if (!needle.includes(normalize(label))) continue
-      // Le lieu le plus précis gagne : Lille prime sur Hauts-de-France.
-      if (!best || place.priority > best.priority) best = place
-      if (!best || place.travelMinutes < best.travelMinutes) best = place
+      const word = ' ' + normalize(label) + ' '
+      for (let at = needle.indexOf(word); at !== -1; at = needle.indexOf(word, at + 1)) {
+        hits.push({ place, start: at, end: at + word.length })
+      }
     }
+  }
+  // Un libellé contenu dans un plus long ne compte pas : « france » dans « Île-de-France ».
+  const kept = hits.filter(
+    (hit) => !hits.some((other) => other.start <= hit.start && other.end >= hit.end && other.end - other.start > hit.end - hit.start),
+  )
+  // Le lieu le plus précis gagne : Lille prime sur Hauts-de-France, Paris sur France.
+  const precise = kept.filter((hit) => !hit.place.broad)
+  const candidates = precise.length > 0 ? precise : kept
+  let best: Place | undefined
+  for (const { place } of candidates) {
+    if (!best || place.travelMinutes < best.travelMinutes) best = place
   }
   return best
 }
@@ -219,16 +234,23 @@ function dimRemote(opp: Opportunity, ctx: ScoringContext): DimensionResult {
   if (remote === 'full') return scored('REMOTE', weight, 1, 'Remote complet.')
 
   const onsite = opp.facts.onsiteDaysPerWeek?.value
+  const place = opp.facts.location ? matchPlace(ctx.locations, opp.facts.location.value) : undefined
+  // Présentiel accepté à cet endroit : le plafond de jours est jugé par LOCATION, pas ici.
+  const accepted = place?.onsiteAccepted === true && (typeof onsite !== 'number' || onsite <= place.maxOnsiteDays)
+  const acceptedReason = 'présentiel accepté à ' + place?.key + ' (' + place?.travelMinutes + ' min de trajet aller)'
+
   if (remote === 'hybrid') {
     if (typeof onsite !== 'number') {
+      if (accepted) return scored('REMOTE', weight, 0.65, 'Hybride, jours sur site non précisés, ' + acceptedReason + '.')
       return scored('REMOTE', weight, 0.65, 'Hybride, nombre de jours sur site non précisé.', true)
     }
     if (onsite <= 2) return scored('REMOTE', weight, 0.9, 'Hybride léger : ' + onsite + ' j/semaine sur site.')
     if (onsite === 3) return scored('REMOTE', weight, 0.7, 'Hybride : 3 j/semaine sur site, à la limite du tenable.')
+    if (accepted) return scored('REMOTE', weight, 0.6, 'Hybride : ' + onsite + ' j/semaine sur site, ' + acceptedReason + '.')
     return scored('REMOTE', weight, 0.3, 'Hybride lourd : ' + onsite + ' j/semaine sur site.', true)
   }
 
-  const place = opp.facts.location ? matchPlace(ctx.locations, opp.facts.location.value) : undefined
+  if (accepted) return scored('REMOTE', weight, 0.6, 'Présentiel, ' + acceptedReason + '.')
   if (place && place.travelMinutes <= 45) {
     return scored('REMOTE', weight, 0.6, 'Présentiel, mais à ' + place.travelMinutes + ' min du domicile.', true)
   }

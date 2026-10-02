@@ -1,5 +1,5 @@
 {
-  "$comment": "Base de départ : Wimereux (62930). `travelMinutes` = trajet aller estimé depuis Wimereux, utilisé pour juger si un rythme hybride est tenable. `maxOnsiteDays` = nombre de jours sur site par semaine au-delà duquel l'opportunité est dégradée.",
+  "$comment": "Base de départ : Wimereux (62930). `travelMinutes` = trajet aller estimé depuis Wimereux, utilisé pour juger si un rythme hybride est tenable. `maxOnsiteDays` = nombre de jours sur site par semaine au-delà duquel l'opportunité est dégradée. `onsiteAccepted` = le présentiel y est accepté : la dimension REMOTE ne le compte pas comme un point faible tant que `maxOnsiteDays` est respecté. `broad` = région ou pays : ne l'emporte jamais sur une ville citée dans le même lieu.",
   "home": { "city": "Wimereux", "postalCode": "62930", "country": "FR" },
   "places": [
     {
@@ -27,8 +27,19 @@
       "maxOnsiteDays": 5
     },
     {
+      "key": "pas-de-calais",
+      "labels": ["pas-de-calais", "pas de calais", "côte d'opale", "cote d'opale", "saint-omer", "saint omer", "longuenesse", "arques", "béthune", "bethune", "bruay-la-buissière", "bruay-la-buissiere", "arras", "lens", "liévin", "lievin", "hénin-beaumont", "henin-beaumont", "carvin", "montreuil-sur-mer", "le touquet", "le touquet-paris-plage", "étaples", "etaples", "berck", "berck-sur-mer", "outreau", "le portel", "saint-martin-boulogne", "marquise", "desvres", "aire-sur-la-lys", "lumbres", "coquelles"],
+      "market": "fr-hdf",
+      "priority": 2,
+      "travelMinutes": 75,
+      "maxOnsiteDays": 5,
+      "onsiteAccepted": true,
+      "note": "Tout le Pas-de-Calais : hybride ou présentiel accepté (demande de Nicolas, 02/10/2026). Trajet estimé de 30 min (Côte d'Opale) à 1h20 (Arras, Lens)."
+    },
+    {
       "key": "hauts-de-france",
-      "labels": ["hauts-de-france", "hauts de france", "pas-de-calais", "nord", "arras", "dunkerque", "amiens", "lens", "douai", "valenciennes"],
+      "broad": true,
+      "labels": ["hauts-de-france", "hauts de france", "nord", "dunkerque", "amiens", "douai", "valenciennes"],
       "market": "fr-hdf",
       "priority": 3,
       "travelMinutes": 90,
@@ -36,12 +47,13 @@
     },
     {
       "key": "lille",
-      "labels": ["lille", "villeneuve-d'ascq", "villeneuve d'ascq", "roubaix", "tourcoing", "marcq-en-baroeul", "euratechnologies"],
+      "labels": ["lille", "villeneuve-d'ascq", "villeneuve d'ascq", "roubaix", "tourcoing", "marcq-en-baroeul", "marcq-en-barœul", "euratechnologies", "la madeleine", "la-madeleine"],
       "market": "fr-hdf",
       "priority": 4,
       "travelMinutes": 105,
-      "maxOnsiteDays": 3,
-      "note": "Hybride accepté : 1 à 3 jours sur site maximum. 1h45 de trajet aller."
+      "maxOnsiteDays": 5,
+      "onsiteAccepted": true,
+      "note": "Présentiel accepté, jusqu'à 5 jours sur site (décision de Nicolas, 29/09/2026). 1h45 de trajet aller."
     },
     {
       "key": "paris",
@@ -50,11 +62,21 @@
       "priority": 5,
       "travelMinutes": 180,
       "maxOnsiteDays": 2,
-      "note": "Remote ou hybride léger. Déplacements ponctuels acceptables. Une mission à 5 jours sur site est signalée comme exception à examiner à part, pas écartée en silence."
+      "note": "2 jours sur site par semaine maximum (décision de Nicolas, 29/09/2026). Au-delà, l'opportunité est dégradée et signalée, pas écartée en silence."
+    },
+    {
+      "key": "lyon",
+      "labels": ["lyon", "villeurbanne"],
+      "market": "fr-other",
+      "priority": 6,
+      "travelMinutes": 300,
+      "maxOnsiteDays": 0,
+      "note": "Remote complet uniquement, 1 déplacement par mois maximum (décision de Nicolas, 29/09/2026)."
     },
     {
       "key": "france-other",
-      "labels": ["france", "lyon", "bordeaux", "nantes", "toulouse", "marseille", "rennes", "strasbourg", "montpellier", "nice"],
+      "broad": true,
+      "labels": ["france", "bordeaux", "nantes", "toulouse", "marseille", "rennes", "strasbourg", "montpellier", "nice"],
       "market": "fr-other",
       "priority": 6,
       "travelMinutes": 300,
@@ -69,6 +91,24 @@
       "travelMinutes": 420,
       "maxOnsiteDays": 0,
       "note": "Remote, ou mobilité à examiner explicitement."
+    },
+    {
+      "key": "luxembourg",
+      "labels": ["luxembourg", "grand-duché de luxembourg", "esch-sur-alzette", "kirchberg", "belval"],
+      "market": "lu",
+      "priority": 7,
+      "travelMinutes": 270,
+      "maxOnsiteDays": 0,
+      "note": "Remote, ou mobilité à examiner explicitement."
+    },
+    {
+      "key": "royaume-uni",
+      "labels": ["angleterre", "england", "royaume-uni", "united kingdom", "uk", "great britain", "london", "londres", "manchester", "bristol", "cambridge", "oxford", "edinburgh", "remote uk"],
+      "market": "uk",
+      "priority": 8,
+      "travelMinutes": 240,
+      "maxOnsiteDays": 0,
+      "note": "Remote, ou mobilité internationale à examiner explicitement. Vérifier le droit de travailler au Royaume-Uni (hors UE)."
     },
     {
       "key": "canada",
@@ -103,6 +143,16 @@
       "priority": 11,
       "travelMinutes": 900,
       "maxOnsiteDays": 0
+    },
+    {
+      "key": "monde",
+      "broad": true,
+      "labels": ["worldwide", "monde", "international", "emea", "europe", "remote europe", "global"],
+      "market": "intl",
+      "priority": 9,
+      "travelMinutes": 600,
+      "maxOnsiteDays": 0,
+      "note": "Remote mondial ou européen : vérifier fuseau horaire et modalités de contrat (portage, EOR, facturation)."
     }
   ],
   "remoteLabels": ["remote", "télétravail", "teletravail", "full remote", "100% remote", "distanciel", "work from home", "wfh", "anywhere"],

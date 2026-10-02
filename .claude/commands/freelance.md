@@ -5,7 +5,7 @@ allowed-tools: Task, Bash, Read
 
 Délègue à `freelance-agent`.
 
-Priorité aux missions longues, en remote ou en hybride Lille à 3 jours sur site
+Priorité aux missions longues, en remote, à Lille (présentiel accepté) ou à Paris à 2 jours sur site
 maximum. Relève systématiquement les TJM réellement affichés avec leur URL : ils
 serviront à poser les références de marché encore vides dans `data/profile.json`.
 

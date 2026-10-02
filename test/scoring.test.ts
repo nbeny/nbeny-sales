@@ -130,7 +130,23 @@ describe('rémunération — pas de référence, pas de score', () => {
 })
 
 describe('localisation et présentiel depuis Wimereux', () => {
-  test('Lille à 4 jours sur site est dégradé et justifié par le trajet', () => {
+  test('Lille en présentiel complet est accepté, trajet dit', () => {
+    const match = computeMatch(
+      opportunity('Développeur Full Stack', {
+        location: evidence('Lille'),
+        remote: evidence('onsite' as const),
+        onsiteDaysPerWeek: evidence(5),
+      }),
+      context(),
+    )
+    assert.equal(dim(match, 'LOCATION').weak, false)
+    const remote = dim(match, 'REMOTE')
+    assert.equal(remote.weak, false)
+    assert.ok(remote.reason.includes('accepté'))
+    assert.ok(remote.reason.includes('105 min'))
+  })
+
+  test('Lille à 4 jours sur site est accepté, sans la note d\'un hybride léger', () => {
     const match = computeMatch(
       opportunity('Développeur Full Stack', {
         location: evidence('Lille'),
@@ -139,10 +155,92 @@ describe('localisation et présentiel depuis Wimereux', () => {
       }),
       context(),
     )
+    assert.equal(dim(match, 'LOCATION').weak, false)
+    const remote = dim(match, 'REMOTE')
+    assert.equal(remote.weak, false)
+    assert.ok(remote.score! < 0.9)
+  })
+
+  test('La Madeleine compte comme Lille', () => {
+    const match = computeMatch(
+      opportunity('Développeur Full Stack', {
+        location: evidence('La Madeleine (59)'),
+        remote: evidence('onsite' as const),
+      }),
+      context(),
+    )
+    assert.ok(dim(match, 'LOCATION').reason.startsWith('lille'))
+    assert.equal(dim(match, 'REMOTE').weak, false)
+  })
+
+  test('Paris à 3 jours sur site dépasse le plafond de 2', () => {
+    const match = computeMatch(
+      opportunity('Développeur Full Stack', {
+        location: evidence('Paris'),
+        remote: evidence('hybrid' as const),
+        onsiteDaysPerWeek: evidence(3),
+      }),
+      context(),
+    )
     const location = dim(match, 'LOCATION')
     assert.equal(location.weak, true)
-    assert.ok(location.reason.includes('Wimereux'))
-    assert.ok(location.reason.includes('1.8 h') || location.reason.includes('h de trajet'))
+    assert.ok(location.reason.includes('maximum tenable de 2'))
+  })
+
+  test('Île-de-France est Paris, pas « le reste de la France »', () => {
+    const match = computeMatch(
+      opportunity('Développeur Full Stack', {
+        location: evidence('Île-de-France'),
+        remote: evidence('hybrid' as const),
+        onsiteDaysPerWeek: evidence(2),
+      }),
+      context(),
+    )
+    const location = dim(match, 'LOCATION')
+    assert.ok(location.reason.startsWith('paris'), location.reason)
+    assert.equal(location.weak, false)
+  })
+
+  test('Boulogne-Billancourt est Paris, pas Boulogne-sur-Mer', () => {
+    const match = computeMatch(
+      opportunity('Développeur Full Stack', { location: evidence('Boulogne-Billancourt'), remote: evidence('onsite' as const) }),
+      context(),
+    )
+    assert.ok(dim(match, 'LOCATION').reason.startsWith('paris'))
+  })
+
+  test('une ville l\'emporte sur sa région ou son pays', () => {
+    const lille = computeMatch(
+      opportunity('Développeur Full Stack', { location: evidence('Lille, Hauts-de-France'), remote: evidence('onsite' as const) }),
+      context(),
+    )
+    assert.ok(dim(lille, 'LOCATION').reason.startsWith('lille'))
+
+    const paris = computeMatch(
+      opportunity('Développeur Full Stack', { location: evidence('Paris, France'), remote: evidence('onsite' as const) }),
+      context(),
+    )
+    assert.ok(dim(paris, 'LOCATION').reason.startsWith('paris'))
+  })
+
+  test('Lyon : remote complet seulement', () => {
+    const remote = computeMatch(
+      opportunity('Développeur Full Stack', { location: evidence('Lyon, France'), remote: evidence('full' as const) }),
+      context(),
+    )
+    assert.equal(dim(remote, 'LOCATION').score, 1)
+
+    const hybrid = computeMatch(
+      opportunity('Développeur Full Stack', {
+        location: evidence('Lyon, France'),
+        remote: evidence('hybrid' as const),
+        onsiteDaysPerWeek: evidence(1),
+      }),
+      context(),
+    )
+    const location = dim(hybrid, 'LOCATION')
+    assert.equal(location.weak, true)
+    assert.ok(location.reason.includes('lyon'))
   })
 
   test('Lille à 2 jours sur site reste confortable', () => {
