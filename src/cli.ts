@@ -46,7 +46,9 @@ import { readSmtpPassword, SECRET_PATH, sendSafetyIssues, type MailConfig } from
 import type { Assumption, Followup, FollowupStatus, Opportunity, OutreachMessage, Profile, StageName } from './lib/types.ts'
 
 const args = process.argv.slice(2)
-const command = args[0] ?? 'help'
+// Sans argument, depuis un vrai terminal : l'application interactive. Un agent
+// n'a pas de terminal et retombe sur l'aide.
+const command = args[0] ?? (process.stdin.isTTY && process.stdout.isTTY ? 'shell' : 'help')
 
 function flag(name: string): string | undefined {
   const i = args.indexOf('--' + name)
@@ -61,7 +63,7 @@ function positional(index: number): string | undefined {
   return args.slice(1).filter((a) => !a.startsWith('--') && !isFlagValue(a))[index]
 }
 
-const FLAGS_WITH_VALUE = ['file', 'json', 'days', 'priority', 'stage', 'contract', 'note', 'floor', 'target', 'source', 'decision', 'currency', 'unit', 'limit', 'min-score', 'min-coverage', 'remote', 'location', 'email', 'name']
+const FLAGS_WITH_VALUE = ['file', 'json', 'days', 'priority', 'stage', 'contract', 'note', 'floor', 'target', 'source', 'decision', 'currency', 'unit', 'limit', 'min-score', 'min-coverage', 'remote', 'location', 'email', 'name', 'sort', 'search']
 function isFlagValue(token: string): boolean {
   const i = args.indexOf(token)
   return i > 0 && args[i - 1].startsWith('--') && FLAGS_WITH_VALUE.includes(args[i - 1].slice(2))
@@ -226,6 +228,8 @@ function opportunityList(): void {
     contract: flag('contract'),
     remote: flag('remote'),
     location: flag('location'),
+    search: flag('search'),
+    sort: flag('sort'),
     minScore: num('min-score'),
     minCoverage: num('min-coverage'),
     limit: num('limit') ?? 50,
@@ -245,7 +249,7 @@ function opportunityShow(): void {
   const id = positional(0)
   const opp = readCollection<Opportunity>('opportunities').find((o) => o.id === id)
   if (!opp) { console.error('Opportunité introuvable : ' + id); process.exit(1) }
-  console.log(JSON.stringify(opp, null, 2))
+  console.log(has('pretty') ? formatDetailed(opp) : JSON.stringify(opp, null, 2))
 }
 
 /**
@@ -957,12 +961,14 @@ Opportunités
       --min-coverage N   dimensions connues minimum sur 8
       --priority HIGH    HIGH | MEDIUM | LOW
       --contract X       freelance | cdi
-      --remote X         full | hybrid | onsite
+      --remote X         full | hybrid | onsite | unspecified (plusieurs : hybrid,onsite)
+      --sort X           score (défaut) | remote (full d'abord) | date | company | location
+      --search X         texte cherché dans entreprise, intitulé, lieu, stack
       --location X       filtre sur le lieu, ex. lille
       --stage X          étape du pipeline
       --limit N          50 par défaut
       --details, --v     fiche complète au lieu d'une ligne
-  opportunity:show <id>
+  opportunity:show <id> [--pretty]    JSON, ou fiche lisible avec --pretty
   opportunity:enrich <id> --file <json>   Ajoute des faits lus sur la source, re-score
                                       (--overwrite pour corriger un fait déjà posé)
   opportunity:stage <id> <STAGE> [--note "..."]
@@ -995,6 +1001,9 @@ Profil et rapports
   report:daily [--days N]
   stats
   runs [--limit N]                    Quand l'agent planifié a tourné, et son prochain lancement
+
+Application interactive
+  shell                               Menus au clavier (aussi : node src/cli.ts sans argument, ou sales.cmd)
 
 Le JSON peut aussi arriver sur stdin, ou via --json '<...>'.`)
 }
@@ -1029,6 +1038,7 @@ const COMMANDS: Record<string, () => void | Promise<void>> = {
   stats,
   runs,
   help,
+  shell: async () => { await (await import('./shell.ts')).runShell() },
 }
 
 try {

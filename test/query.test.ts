@@ -1,7 +1,8 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { filterOpportunities } from '../src/lib/query.ts'
+import { filterOpportunities, remoteRank } from '../src/lib/query.ts'
+import { formatCompact, remoteCell } from '../src/lib/format.ts'
 import type { Opportunity } from '../src/lib/types.ts'
 
 const SRC = 'https://exemple.fr/jobs/1'
@@ -92,5 +93,57 @@ describe('filtrage du listing', () => {
   test('--limit tronque après le tri, pas avant', () => {
     const out = filterOpportunities(rows, { limit: 2 })
     assert.deepEqual(out.map((o) => o.id), ['A', 'B'])
+  })
+})
+
+describe('télétravail : filtre multiple et tri', () => {
+  const list = [
+    opp('ONSITE', 99, 8, { facts: { remote: evidence('onsite' as const) } }),
+    opp('H3', 95, 8, { facts: { remote: evidence('hybrid' as const), onsiteDaysPerWeek: evidence(3) } }),
+    opp('H1', 70, 8, { facts: { remote: evidence('hybrid' as const), onsiteDaysPerWeek: evidence(1) } }),
+    opp('H?', 90, 8, { facts: { remote: evidence('hybrid' as const) } }),
+    opp('FULL-LOW', 60, 8, { facts: { remote: evidence('full' as const) } }),
+    opp('FULL-HIGH', 85, 8, { facts: { remote: evidence('full' as const) } }),
+    opp('MUET', 98, 8),
+  ]
+
+  test("--sort remote : full d'abord, puis hybride du plus léger au plus lourd, présentiel, non précisé", () => {
+    assert.deepEqual(filterOpportunities(list, { sort: 'remote' }).map((o) => o.id), ['FULL-HIGH', 'FULL-LOW', 'H1', 'H3', 'H?', 'ONSITE', 'MUET'])
+  })
+
+  test('un hybride sans nombre de jours ne passe pas devant un hybride chiffré', () => {
+    assert.ok(remoteRank(list[3]) > remoteRank(list[1]))
+  })
+
+  test("une annonce muette n'est jamais comptée comme full remote", () => {
+    assert.deepEqual(filterOpportunities(list, { remote: 'full' }).map((o) => o.id), ['FULL-HIGH', 'FULL-LOW'])
+    assert.deepEqual(filterOpportunities(list, { remote: 'unspecified' }).map((o) => o.id), ['MUET'])
+  })
+
+  test("--remote hybrid,onsite garde tout ce qui n'est pas full remote et précisé", () => {
+    assert.deepEqual(filterOpportunities(list, { remote: 'hybrid,onsite' }).map((o) => o.id).sort(), ['H1', 'H3', 'H?', 'ONSITE'])
+  })
+
+  test('un tri inconnu est refusé au lieu de retomber en silence sur le score', () => {
+    assert.throws(() => filterOpportunities(list, { sort: 'salaire' }), /Tri inconnu/)
+  })
+
+  test("--search cherche dans l'entreprise, l'intitulé, le lieu et la stack", () => {
+    const rows = [
+      opp('S1', 80, 8, { facts: { technologies: evidence(['TypeScript', 'NestJS']) } }),
+      opp('S2', 80, 8, { facts: { location: evidence('Arras') } }),
+    ]
+    assert.deepEqual(filterOpportunities(rows, { search: 'nestjs' }).map((o) => o.id), ['S1'])
+    assert.deepEqual(filterOpportunities(rows, { search: 'ARRAS' }).map((o) => o.id), ['S2'])
+  })
+
+  test('la ligne compacte montre le mode de travail et le lieu', () => {
+    assert.match(remoteCell(list[4]), /Full remote/)
+    assert.match(remoteCell(list[1]), /Hybride 3j/)
+    assert.match(remoteCell(list[3]), /Hybride \?j/)
+    assert.match(remoteCell(list[6]), /Non précisé/)
+    const line = formatCompact(opp('L', 80, 8, { facts: { remote: evidence('onsite' as const), location: evidence('Saint-Omer') } }))
+    assert.match(line, /Présentiel/)
+    assert.match(line, /Saint-Omer/)
   })
 })

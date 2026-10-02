@@ -22,7 +22,10 @@
       "Bash(USERPROFILE=* *)",
       "Bash(HOME=* *)",
       "Bash(mklink *)",
-      "Bash(cmd /c mklink *)"
+      "Bash(cmd /c mklink *)",
+      "Bash(node src/cli.ts shell*)",
+      "Bash(node src/shell.ts*)",
+      "Bash(*sales.cmd*)"
     ]
   }
 }

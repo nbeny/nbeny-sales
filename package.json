@@ -9,6 +9,7 @@
     "cli": "node src/cli.ts",
     "test": "node --test \"test/*.test.ts\"",
     "report": "node src/cli.ts report:daily",
-    "stats": "node src/cli.ts stats"
+    "stats": "node src/cli.ts stats",
+    "shell": "node src/cli.ts shell"
   }
 }

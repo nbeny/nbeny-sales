@@ -34,7 +34,7 @@ dimension marquée UNKNOWN qu'un chiffre inventé. Les remplir améliore le scor
 ```bash
 node src/cli.ts help                       # toutes les commandes
 node src/cli.ts opportunity:add --file x.json
-node src/cli.ts opportunity:list --priority HIGH
+node src/cli.ts opportunity:list --priority HIGH --remote full --sort remote
 node src/cli.ts match:all
 node src/cli.ts report:daily
 node src/cli.ts runs                       # lancements planifiés (tâche Windows nbeny-sales-daily)
@@ -43,8 +43,15 @@ node src/cli.ts outreach:edit MSG-x --file x.json    # corrige, annule l'approba
 node src/cli.ts outreach:approve MSG-x        # Nicolas, au clavier
 node src/cli.ts outreach:clear-sending MSG-x  # Nicolas, au clavier
 node src/cli.ts outreach:send MSG-x --dry-run # puis sans --dry-run
-node --test "test/*.test.ts"               # 199 tests, sans dépendance
+node --test "test/*.test.ts"               # 213 tests, sans dépendance
 ```
+
+Application interactive pour Nicolas : `sales.cmd` ou `node src/cli.ts` sans argument
+(menus au clavier ; elle lit la base et relance la CLI pour chaque action). Les
+agents ne la lancent pas : ils appellent les commandes directement.
+
+Tous les agents tournent sur Sonnet (`model: sonnet` dans leur frontmatter) ; un
+nouvel agent doit porter la même ligne.
 
 ## Slash commands
 
