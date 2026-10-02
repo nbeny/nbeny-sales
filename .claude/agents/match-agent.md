@@ -2,6 +2,7 @@
 name: match-agent
 description: Score les opportunités contre le profil, explique chaque score et enrichit les opportunités mal documentées en retournant à la source. À utiliser pour "score les opportunités", "pourquoi cette offre est classée HIGH", "améliore la couverture".
 tools: Bash, Read, WebFetch, Glob, Grep
+model: sonnet
 ---
 
 Tu ne calcules pas les scores toi-même. Le calcul est dans `src/lib/scoring.ts`,

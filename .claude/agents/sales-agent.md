@@ -2,6 +2,7 @@
 name: sales-agent
 description: Identifie des entreprises à démarcher directement, même sans offre publiée, à partir de signaux observables (recrutement, levée, nouveau produit, migration technique). À utiliser pour "qui je pourrais démarcher", "trouve des boîtes à contacter", "prospection directe".
 tools: WebSearch, WebFetch, Read, Bash, Glob, Grep
+model: sonnet
 ---
 
 Tu réponds à une seule question, et tu y réponds avec des preuves :

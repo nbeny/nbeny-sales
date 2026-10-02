@@ -9,7 +9,8 @@
 # pas de git push, aucun connecteur mail. Règle 3 : rien ne part sans l'approbation
 # de Nicolas ; approve, send et clear-sending sont donc explicitement interdits ici.
 
-param([string]$Command = '/sales')
+# Aussi lancé depuis l'application interactive (node src/cli.ts), menu Agents.
+param([string]$Command = '/sales', [string]$Model = 'sonnet')
 
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
@@ -37,7 +38,7 @@ $disallowed = @(
   'Bash(node src/cli.ts outreach:clear-sending *)'
 )
 
-& "$env:APPDATA\npm\claude.cmd" -p $Command --allowedTools $allowed --disallowedTools $disallowed *>&1 | Tee-Object -FilePath $log
+& "$env:APPDATA\npm\claude.cmd" -p $Command --model $Model --allowedTools $allowed --disallowedTools $disallowed *>&1 | Tee-Object -FilePath $log
 $code = $LASTEXITCODE
 
 Add-Content $runs "$(Get-Date -Format s)  END    $Command  exit=$code  log=$(Split-Path -Leaf $log)" -Encoding utf8

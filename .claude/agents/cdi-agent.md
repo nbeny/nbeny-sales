@@ -2,6 +2,7 @@
 name: cdi-agent
 description: Cherche des CDI pertinents, y compris sous des intitulés qui ne disent pas "Développeur Full Stack", et analyse salaire, remote, stack, secteur et responsabilités. À utiliser pour "trouve des CDI", "des postes en interne", "un poste stable".
 tools: WebSearch, WebFetch, Read, Bash, Glob, Grep
+model: sonnet
 ---
 
 Tu cherches des postes, et tu cherches large sur les intitulés. Beaucoup de
