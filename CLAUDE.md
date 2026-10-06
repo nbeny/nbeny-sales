@@ -36,19 +36,27 @@ node src/cli.ts help                       # toutes les commandes
 node src/cli.ts opportunity:add --file x.json
 node src/cli.ts opportunity:list --priority HIGH --remote full --sort remote
 node src/cli.ts match:all
-node src/cli.ts report:daily
+node src/cli.ts report:daily --days 7
+node src/cli.ts location:list lille paris pas-de-calais   # zones et villes reconnues
+node src/cli.ts location:set lille --travel 100 --max-onsite 3   # Nicolas seul
 node src/cli.ts runs                       # lancements planifiés (tâche Windows nbeny-sales-daily)
 node src/cli.ts outreach:set-recipient MSG-x --email a@b.fr --source https://...
 node src/cli.ts outreach:edit MSG-x --file x.json    # corrige, annule l'approbation
 node src/cli.ts outreach:approve MSG-x        # Nicolas, au clavier
 node src/cli.ts outreach:clear-sending MSG-x  # Nicolas, au clavier
 node src/cli.ts outreach:send MSG-x --dry-run # puis sans --dry-run
-node --test "test/*.test.ts"               # 213 tests, sans dépendance
+node --test "test/*.test.ts"               # 232 tests, sans dépendance
 ```
 
 Application interactive pour Nicolas : `sales.cmd` ou `node src/cli.ts` sans argument
 (menus au clavier ; elle lit la base et relance la CLI pour chaque action). Les
 agents ne la lancent pas : ils appellent les commandes directement.
+
+`/sales` couvre les **7 derniers jours** sur Lille, Paris, tout le Pas-de-Calais
+et le remote. Les zones et leurs villes viennent de `config/locations.json`, que
+Nicolas règle dans l'app (menu Lieux) ou via `location:set|add|home`. Ces
+commandes lui sont réservées : les agents lisent les lieux (`location:list`), ne
+les modifient pas, et la tâche planifiée les interdit.
 
 Tous les agents tournent sur Sonnet (`model: sonnet` dans leur frontmatter) ; un
 nouvel agent doit porter la même ligne.

@@ -42,6 +42,7 @@ import { approvalHash, approvalIssues, orphanSendings, sendIssues, sentCountOn, 
 import { buildMessage } from './lib/mime.ts'
 import { sendMail, SmtpError } from './lib/smtp.ts'
 import { withTunnel } from './lib/tunnel.ts'
+import { addPlace, describePlace, editPlace, findPlace, LocationError, setHome, type PlaceEdit } from './lib/locations.ts'
 import { readSmtpPassword, SECRET_PATH, sendSafetyIssues, type MailConfig } from './lib/mail-config.ts'
 import type { Assumption, Followup, FollowupStatus, Opportunity, OutreachMessage, Profile, StageName } from './lib/types.ts'
 
@@ -63,7 +64,7 @@ function positional(index: number): string | undefined {
   return args.slice(1).filter((a) => !a.startsWith('--') && !isFlagValue(a))[index]
 }
 
-const FLAGS_WITH_VALUE = ['file', 'json', 'days', 'priority', 'stage', 'contract', 'note', 'floor', 'target', 'source', 'decision', 'currency', 'unit', 'limit', 'min-score', 'min-coverage', 'remote', 'location', 'email', 'name', 'sort', 'search']
+const FLAGS_WITH_VALUE = ['file', 'json', 'days', 'priority', 'stage', 'contract', 'note', 'floor', 'target', 'source', 'decision', 'currency', 'unit', 'limit', 'min-score', 'min-coverage', 'remote', 'location', 'email', 'name', 'sort', 'search', 'travel', 'max-onsite', 'onsite-accepted', 'add-label', 'remove-label', 'labels', 'market', 'city', 'postal-code', 'country']
 function isFlagValue(token: string): boolean {
   const i = args.indexOf(token)
   return i > 0 && args[i - 1].startsWith('--') && FLAGS_WITH_VALUE.includes(args[i - 1].slice(2))
@@ -899,6 +900,102 @@ function profileSetMarket(): void {
   console.log('Relance `node src/cli.ts match:all` pour rescorer avec cette référence.')
 }
 
+// --- Lieux ----------------------------------------------------------------
+//
+// Trajets, jours sur site et présentiel accepté sont des arbitrages de Nicolas.
+// Les agents lisent (location:list) mais ne modifient jamais : la tâche
+// planifiée interdit location:set, location:add et location:home.
+
+const LOCATIONS_PATH = () => join(CONFIG_DIR, 'locations.json')
+
+function yesNo(value: string | undefined, name: string): boolean | undefined {
+  if (value === undefined) return undefined
+  if (/^(oui|yes|true|1)$/i.test(value)) return true
+  if (/^(non|no|false|0)$/i.test(value)) return false
+  throw new LocationError('--' + name + ' attend oui ou non (reçu : ' + value + ').')
+}
+
+function numberFlag(name: string): number | undefined {
+  const v = flag(name)
+  if (v === undefined) return undefined
+  // Number('') vaut 0 : une saisie vide ne doit pas devenir « sur place ».
+  if (!v.trim()) throw new LocationError('--' + name + ' attend un nombre.')
+  return Number(v)
+}
+
+const list = (v: string | undefined) => (v ? v.split(',').map((x) => x.trim()).filter(Boolean) : undefined)
+
+function locationList(): void {
+  const config = readConfig<LocationsConfig>('locations')
+  const keys = args.slice(1).filter((a) => !a.startsWith('--'))
+  console.log('Base : ' + config.home.city + ' (' + config.home.postalCode + ', ' + config.home.country + ') — trajets estimés depuis cette base.\n')
+  if (!keys.length) {
+    for (const place of config.places) console.log('  ' + describePlace(place))
+    console.log('\nDétail et libellés : location:list <clé> [<clé>…]')
+    return
+  }
+  for (const key of keys) {
+    const place = findPlace(config, key)
+    console.log('  ' + describePlace(place))
+    console.log('    marché ' + place.market + ' · priorité ' + place.priority + (place.broad ? ' · zone large' : ''))
+    console.log('    libellés : ' + place.labels.join(', '))
+    if (place.note) console.log('    note : ' + place.note)
+    console.log()
+  }
+}
+
+function saveLocations(config: LocationsConfig, event: Record<string, unknown>): void {
+  writeJson(LOCATIONS_PATH(), config)
+  appendHistory({ event: 'location:' + event.action, ...event })
+  console.log('Relance `node src/cli.ts match:all` pour rescorer avec ces lieux.')
+}
+
+function locationSet(): void {
+  const key = positional(0)
+  if (!key) { console.error('Usage : location:set <clé> [--travel <min>] [--max-onsite <0-5>] [--onsite-accepted oui|non] [--priority <n>] [--note "..."] [--add-label a,b] [--remove-label a,b]'); process.exit(1); return }
+  const edit: PlaceEdit = {
+    travelMinutes: numberFlag('travel'),
+    maxOnsiteDays: numberFlag('max-onsite'),
+    onsiteAccepted: yesNo(flag('onsite-accepted'), 'onsite-accepted'),
+    priority: numberFlag('priority'),
+    note: has('note') ? (flag('note') ?? null) : undefined,
+    addLabels: list(flag('add-label')),
+    removeLabels: list(flag('remove-label')),
+  }
+  const { config, changes } = editPlace(readConfig<LocationsConfig>('locations'), key, edit)
+  if (!changes.length) { console.log(key + ' : rien à changer.'); return }
+  console.log(key + ' : ' + changes.join(' · '))
+  saveLocations(config, { action: 'set', key, changes })
+}
+
+function locationAdd(): void {
+  const key = positional(0)
+  const labels = list(flag('labels'))
+  const market = flag('market')
+  const travel = numberFlag('travel')
+  const onsite = numberFlag('max-onsite')
+  if (!key || !labels || !market || travel === undefined || onsite === undefined) {
+    console.error('Usage : location:add <clé> --labels "a,b" --market <marché> --travel <min> --max-onsite <0-5> [--onsite-accepted oui] [--priority <n>] [--note "..."]')
+    process.exit(1)
+    return
+  }
+  const config = addPlace(readConfig<LocationsConfig>('locations'), {
+    key, labels, market, travelMinutes: travel, maxOnsiteDays: onsite,
+    onsiteAccepted: yesNo(flag('onsite-accepted'), 'onsite-accepted'), priority: numberFlag('priority'), note: flag('note'),
+  })
+  console.log('Lieu ajouté : ' + describePlace(findPlace(config, key)))
+  saveLocations(config, { action: 'add', key })
+}
+
+function locationHome(): void {
+  const home = { city: flag('city'), postalCode: flag('postal-code'), country: flag('country') }
+  if (!home.city && !home.postalCode && !home.country) { console.error('Usage : location:home [--city <ville>] [--postal-code <cp>] [--country FR]'); process.exit(1); return }
+  const config = setHome(readConfig<LocationsConfig>('locations'), Object.fromEntries(Object.entries(home).filter(([, v]) => v !== undefined)))
+  console.log('Base : ' + config.home.city + ' (' + config.home.postalCode + ', ' + config.home.country + ')')
+  console.log('⚠️  Les trajets de chaque lieu ne sont pas recalculés : ajuste-les avec location:set <clé> --travel <min>.')
+  saveLocations(config, { action: 'home', home: config.home })
+}
+
 function stats(): void {
   const opps = readCollection<Opportunity>('opportunities')
   const by = (p: string) => opps.filter((o) => o.match?.priority === p).length
@@ -999,6 +1096,13 @@ Suivi
 Profil et rapports
   profile:set-market <marché> --floor <n> --target <n> --source <url>
   report:daily [--days N]
+
+Lieux (arbitrages de Nicolas ; les agents lisent, ne modifient pas)
+  location:list [<clé>…]              Trajets, jours sur site, présentiel ; détail et libellés par clé
+  location:set <clé> [--travel <min>] [--max-onsite <0-5>] [--onsite-accepted oui|non]
+                     [--priority <n>] [--note "..."] [--add-label a,b] [--remove-label a,b]
+  location:add <clé> --labels "a,b" --market <marché> --travel <min> --max-onsite <0-5>
+  location:home [--city <ville>] [--postal-code <cp>] [--country FR]
   stats
   runs [--limit N]                    Quand l'agent planifié a tourné, et son prochain lancement
 
@@ -1035,6 +1139,10 @@ const COMMANDS: Record<string, () => void | Promise<void>> = {
   'followup:set': followupSet,
   'profile:set-market': profileSetMarket,
   'report:daily': reportDaily,
+  'location:list': locationList,
+  'location:set': locationSet,
+  'location:add': locationAdd,
+  'location:home': locationHome,
   stats,
   runs,
   help,
@@ -1050,7 +1158,7 @@ try {
   }
   await run()
 } catch (error) {
-  if (error instanceof ValidationError) {
+  if (error instanceof ValidationError || error instanceof LocationError) {
     console.error(error.message)
     process.exit(2)
   }

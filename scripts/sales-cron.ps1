@@ -31,11 +31,15 @@ $allowed = @(
   'Read', 'Glob', 'Grep'
 )
 
-# 'Bash(node src/cli.ts *)' ci-dessus couvrirait sinon ces trois commandes.
+# 'Bash(node src/cli.ts *)' ci-dessus couvrirait sinon ces commandes. Les lieux
+# (trajets, jours sur site) sont des arbitrages de Nicolas : les agents les lisent.
 $disallowed = @(
   'Bash(node src/cli.ts outreach:approve *)',
   'Bash(node src/cli.ts outreach:send *)',
-  'Bash(node src/cli.ts outreach:clear-sending *)'
+  'Bash(node src/cli.ts outreach:clear-sending *)',
+  'Bash(node src/cli.ts location:set *)',
+  'Bash(node src/cli.ts location:add *)',
+  'Bash(node src/cli.ts location:home *)'
 )
 
 & "$env:APPDATA\npm\claude.cmd" -p $Command --model $Model --allowedTools $allowed --disallowedTools $disallowed *>&1 | Tee-Object -FilePath $log

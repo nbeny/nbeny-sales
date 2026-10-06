@@ -18,11 +18,13 @@ import { spawn, spawnSync, execFile } from 'node:child_process'
 import { join } from 'node:path'
 import { createInterface } from 'node:readline/promises'
 import { styleText } from 'node:util'
-import { readCollection, ROOT } from './lib/store.ts'
+import { readCollection, readConfig, ROOT } from './lib/store.ts'
+import { describePlace } from './lib/locations.ts'
+import type { LocationsConfig } from './lib/scoring.ts'
 import { filterOpportunities, SORT_KEYS, type ListCriteria } from './lib/query.ts'
 import { formatCompact, formatDetailed } from './lib/format.ts'
 import { canTransition } from './lib/pipeline.ts'
-import { menu, readKey } from './lib/tui.ts'
+import { leaveScreen, menu, readKey } from './lib/tui.ts'
 import { STAGES, TERMINAL_STAGES, type Followup, type FollowupStatus, type Opportunity, type OutreachMessage, type StageName } from './lib/types.ts'
 
 const CLI = join(ROOT, 'src', 'cli.ts')
@@ -37,6 +39,7 @@ const green = (s: string) => styleText('green', s)
 
 /** Saisie de texte (email, recherche, note…). Vide = annuler. */
 async function ask(prompt: string): Promise<string> {
+  leaveScreen()
   const rl = createInterface({ input: process.stdin, output: process.stdout })
   rl.on('SIGINT', () => { rl.close(); console.log(); process.exit(0) })
   try {
@@ -55,6 +58,7 @@ async function pressAnyKey(): Promise<void> {
 
 /** Lance une commande de la CLI dans ce terminal (elle peut demander une confirmation). */
 function cli(...args: string[]): boolean {
+  leaveScreen()
   console.log(dim('$ node src/cli.ts ' + args.map((a) => (/\s/.test(a) ? JSON.stringify(a) : a)).join(' ')) + '\n')
   return spawnSync(process.execPath, [CLI, ...args], { stdio: 'inherit' }).status === 0
 }
@@ -66,7 +70,7 @@ function cliOutput(...args: string[]): string {
 }
 
 async function runAndShow(...args: string[]): Promise<void> {
-  console.clear()
+  leaveScreen()
   cli(...args)
   await pressAnyKey()
 }
@@ -158,9 +162,10 @@ async function opportunitiesScreen(): Promise<void> {
       case 'p': c.priority = apply(c.priority, await choose('Priorité', ['HIGH', 'MEDIUM', 'LOW'] as const, { HIGH: '🔥 HIGH', MEDIUM: '🟠 MEDIUM', LOW: '⚪ LOW' }, 'Toutes')); break
       case 'c': c.contract = apply(c.contract, await choose('Contrat', ['freelance', 'cdi'] as const, { freelance: 'Freelance', cdi: 'CDI' }, 'Tous')); break
       case 'e': c.stage = apply(c.stage, await choose('Étape du pipeline', [...STAGES, ...TERMINAL_STAGES], {}, 'Toutes')); break
-      case 'l': console.log(top); c.location = (await ask('Lieu contient (vide = tous) : ')) || undefined; break
-      case '/': console.log(top); c.search = (await ask('Recherche dans entreprise, intitulé, lieu, stack (vide = tout) : ')) || undefined; break
+      case 'l': leaveScreen(); console.log(top); c.location = (await ask('Lieu contient (vide = tous) : ')) || undefined; break
+      case '/': leaveScreen(); console.log(top); c.search = (await ask('Recherche dans entreprise, intitulé, lieu, stack (vide = tout) : ')) || undefined; break
       case 's': {
+        leaveScreen()
         console.log(top)
         const v = await ask('Score minimum sur 100 (vide = aucun) : ')
         c.minScore = v === '' || Number.isNaN(Number(v)) ? undefined : Number(v)
@@ -194,6 +199,7 @@ async function opportunityDetail(id: string): Promise<void> {
       const next = [...STAGES, ...TERMINAL_STAGES].filter((s) => canTransition(opp.stage, s))
       const to = await choose('Étape actuelle : ' + opp.stage + ' → nouvelle étape', next as StageName[])
       if (!to) continue
+      leaveScreen()
       console.log(header())
       const note = await ask('Note (facultatif) : ')
       await runAndShow('opportunity:stage', id, to, ...(note ? ['--note', note] : []))
@@ -243,6 +249,7 @@ async function messageDetail(id: string): Promise<void> {
       case 'approve': await runAndShow('outreach:approve', id); break
       case 'dry': await runAndShow('outreach:send', id, '--dry-run'); break
       case 'recipient': {
+        leaveScreen()
         console.log(header())
         const email = await ask('Email (vide = annuler) : ')
         if (!email) break
@@ -252,7 +259,7 @@ async function messageDetail(id: string): Promise<void> {
         break
       }
       case 'send': {
-        console.clear()
+        leaveScreen()
         if (m.status !== 'APPROVED') { console.log(yellow('Seul un message APPROVED peut partir. Approuve-le d\'abord.')); await pressAnyKey(); break }
         if (!cli('outreach:send', id, '--dry-run')) { await pressAnyKey(); break }
         if ((await ask(bold('\nEnvoyer pour de vrai ? Tape « envoyer » : '))) === 'envoyer') cli('outreach:send', id)
@@ -284,9 +291,105 @@ async function followupsScreen(): Promise<void> {
     const f = rows[r.index]
     const status = await choose('Nouveau statut pour ' + f.id + ' (' + f.company + ')', FOLLOWUP_STATUSES)
     if (!status) continue
+    leaveScreen()
     console.log(header())
     const note = await ask('Note (facultatif) : ')
     await runAndShow('followup:set', f.id, status, ...(note ? ['--note', note] : []))
+  }
+}
+
+// --- Lieux -----------------------------------------------------------------
+//
+// Trajets, jours sur site et présentiel accepté : ce sont tes arbitrages. Chaque
+// modification passe par location:set (validation + journal), puis tout est
+// re-scoré pour que les priorités reflètent tout de suite le nouveau réglage.
+
+/** Re-score après un changement de lieu ; affiche la ligne de bilan seulement. */
+function rescore(): void {
+  const last = cliOutput('match:all').split('\n').pop() ?? ''
+  console.log(green('↻ ' + last))
+}
+
+async function editLocation(key: string, ...args: string[]): Promise<void> {
+  if (cli('location:set', key, ...args)) rescore()
+  await pressAnyKey()
+}
+
+async function locationsScreen(): Promise<void> {
+  let cursor = 0
+  for (;;) {
+    const config = readConfig<LocationsConfig>('locations')
+    const extra = [['home', '🏠 Changer la base (' + config.home.city + ', ' + config.home.postalCode + ')'], ['add', '➕ Ajouter un lieu']]
+    const r = await menu({
+      top: header() + '\n' + bold('Lieux') + dim('  ·  trajets depuis ' + config.home.city + '  ·  Entrée pour modifier') + '\n',
+      items: [...config.places.map(describePlace), ...extra.map((e) => e[1])],
+      initial: cursor,
+    })
+    if (r.action !== 'enter') return
+    cursor = r.index
+    const place = config.places[r.index]
+    if (place) { await placeDetail(place.key); continue }
+
+    leaveScreen()
+    console.log(header())
+    if (extra[r.index - config.places.length][0] === 'home') {
+      const city = await ask('Ville de base (vide = annuler) : ')
+      if (!city) continue
+      const postal = await ask('Code postal : ')
+      await runAndShow('location:home', '--city', city, ...(postal ? ['--postal-code', postal] : []))
+      continue
+    }
+    const key = await ask('Clé du lieu, en minuscules (ex. saint-omer ; vide = annuler) : ')
+    if (!key) continue
+    const labels = await ask('Libellés tels qu\'écrits dans les annonces, séparés par des virgules : ')
+    const markets = [...new Set(config.places.map((p) => p.market))]
+    const market = await choose('Marché de rémunération', markets)
+    if (!market) continue
+    leaveScreen()
+    const travel = await ask('Trajet aller depuis ' + config.home.city + ', en minutes : ')
+    const onsite = await ask('Jours sur site par semaine au maximum (0 = remote uniquement) : ')
+    const accepted = (await ask('Présentiel accepté ? (o/N) : ')).toLowerCase().startsWith('o')
+    if (cli('location:add', key, '--labels', labels, '--market', market, '--travel', travel, '--max-onsite', onsite, ...(accepted ? ['--onsite-accepted', 'oui'] : []))) rescore()
+    await pressAnyKey()
+  }
+}
+
+async function placeDetail(key: string): Promise<void> {
+  for (;;) {
+    const place = readConfig<LocationsConfig>('locations').places.find((p) => p.key === key)
+    if (!place) return
+    const actions = [
+      ['travel', '🚗 Trajet aller (actuel : ' + place.travelMinutes + ' min)'],
+      ['onsite', '🏢 Jours sur site max par semaine (actuel : ' + place.maxOnsiteDays + ')'],
+      ['accepted', (place.onsiteAccepted ? '✅' : '⬜') + ' Présentiel accepté — Entrée pour basculer'],
+      ['add', '➕ Ajouter des libellés (villes, quartiers reconnus dans les annonces)'],
+      ['remove', '➖ Retirer un libellé'],
+      ['priority', '🔢 Priorité (actuelle : ' + place.priority + ')'],
+      ['note', '📝 Note' + (place.note ? ' : ' + place.note : ' (aucune)')],
+    ]
+    const r = await menu({ top: header() + '\n' + cliOutput('location:list', key) + '\n', items: actions.map((a) => a[1]) })
+    if (r.action !== 'enter') return
+    const action = actions[r.index][0]
+
+    if (action === 'accepted') { await editLocation(key, '--onsite-accepted', place.onsiteAccepted ? 'non' : 'oui'); continue }
+    if (action === 'remove') {
+      const label = await choose('Libellé à retirer de ' + key, place.labels)
+      if (label) await editLocation(key, '--remove-label', label)
+      continue
+    }
+    leaveScreen()
+    console.log(header())
+    const prompts: Record<string, [string, string]> = {
+      travel: ['Trajet aller en minutes (vide = annuler) : ', '--travel'],
+      onsite: ['Jours sur site max, de 0 (remote uniquement) à 5 (vide = annuler) : ', '--max-onsite'],
+      add: ['Libellés à ajouter, séparés par des virgules (vide = annuler) : ', '--add-label'],
+      priority: ['Priorité, 1 = la plus proche de toi (vide = annuler) : ', '--priority'],
+      note: ['Note (vide = annuler, « - » pour l\'effacer) : ', '--note'],
+    }
+    const [prompt, flag] = prompts[action]
+    const value = await ask(prompt)
+    if (!value) continue
+    await editLocation(key, flag, action === 'note' && value === '-' ? '' : value)
   }
 }
 
@@ -300,7 +403,7 @@ async function followupsScreen(): Promise<void> {
  */
 const AGENT_COMMANDS = ['/sales', '/jobs', '/freelance', '/cdi', '/prospect', '/report', '/marketing', '/seo', 'libre'] as const
 const AGENT_LABELS: Record<string, string> = {
-  '/sales': '/sales       Journée complète : recherche, scoring, brouillons, relances, rapport (~20 min)',
+  '/sales': '/sales       Semaine complète (7 j) : Lille, Paris, Pas-de-Calais + remote, scoring, brouillons, relances',
   '/jobs': '/jobs        Offres publiées, tous contrats',
   '/freelance': '/freelance   Missions freelance',
   '/cdi': '/cdi         CDI, y compris sous des intitulés inattendus',
@@ -340,6 +443,7 @@ async function agentsScreen(): Promise<void> {
   if (!picked) return
   let command: string = picked
   if (picked === 'libre') {
+    leaveScreen()
     console.log(header())
     command = await ask('Consigne : ')
     if (!command) return
@@ -349,7 +453,7 @@ async function agentsScreen(): Promise<void> {
     here: '📺 Ici, en suivant la sortie (l\'app attend la fin)',
   })
   if (!where) return
-  console.clear()
+  leaveScreen()
   launchAgent(command, where === 'window')
   await pressAnyKey()
 }
@@ -384,6 +488,8 @@ ${bold('Ce que contient chaque menu')}
                 (par toi) → 📤 envoyé (par toi).
   ${bold('Suivis')}        contacts engagés et relances dues.
   ${bold('Rapport')}       synthèse du jour, écrite dans data/reports/.
+  ${bold('Lieux')}         tes zones : trajet, jours sur site tenables, présentiel
+                accepté, villes reconnues. Chaque modification re-score tout.
   ${bold('Re-scorer')}     recalcule tous les scores (après un réglage de config/).
   ${bold('Lancements')}    historique des lancements automatiques des agents.
 
@@ -395,12 +501,13 @@ const MENU: [string, () => Promise<void>][] = [
   ['📋 Opportunités      parcourir, filtrer (full remote…), trier', opportunitiesScreen],
   ['✉️  Messages          brouillons, destinataire, approbation, envoi', messagesScreen],
   ['🔁 Suivis            relances et statuts', followupsScreen],
+  ['📍 Lieux             trajets, jours sur site, présentiel accepté', locationsScreen],
   ['🤖 Agents            lancer /sales, /jobs, /freelance… (Sonnet)', agentsScreen],
   ['📰 Rapport du jour   report:daily', () => runAndShow('report:daily')],
   ['🧮 Re-scorer tout    match:all', () => runAndShow('match:all')],
   ['🕒 Lancements        quand les agents ont tourné', () => runAndShow('runs')],
   ['📊 Statistiques', () => runAndShow('stats')],
-  ['❓ Comment ça marche', async () => { console.clear(); console.log(GUIDE); await pressAnyKey() }],
+  ['❓ Comment ça marche', async () => { leaveScreen(); console.log(GUIDE); await pressAnyKey() }],
   ['🚪 Quitter', async () => { process.exit(0) }],
 ]
 

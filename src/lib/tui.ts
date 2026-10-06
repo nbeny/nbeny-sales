@@ -1,8 +1,9 @@
 /**
  * Menus au clavier pour l'application interactive : flèches, Entrée, Échap.
  *
- * Le rendu (largeur, fenêtre visible) est pur et testé ; seule `readKey` touche
- * au terminal. Aucune dépendance : le mode brut de Node suffit.
+ * Le rendu (largeur, fenêtre visible) est pur et testé ; seuls `readKey`,
+ * `enterScreen` et `leaveScreen` touchent au terminal. Aucune dépendance : le
+ * mode brut de Node et l'écran alternatif ANSI suffisent.
  */
 import { emitKeypressEvents } from 'node:readline'
 import { styleText } from 'node:util'
@@ -13,20 +14,60 @@ export interface Key {
   ctrl?: boolean
 }
 
-/** Lit une seule touche, puis rend le terminal à son mode normal. */
-export function readKey(): Promise<Key> {
+// --- Écran ------------------------------------------------------------------
+//
+// Les menus s'affichent sur l'écran alternatif (comme vim ou htop) et se
+// redessinent en place. Effacer l'écran principal (console.clear) casse les
+// terminaux à blocs comme Warp : chaque rendu s'empile ou écrase le bloc.
+// Les sorties de commandes, elles, restent sur l'écran principal et donc dans
+// l'historique du terminal.
+
+let onAltScreen = false
+
+/** Passe sur l'écran alternatif, curseur masqué. Sans effet si on y est déjà. */
+export function enterScreen(): void {
+  if (onAltScreen) return
+  onAltScreen = true
+  process.stdout.write('\x1b[?1049h\x1b[?25l')
+}
+
+/** Revient à l'écran principal, curseur visible, clavier en mode normal. */
+export function leaveScreen(): void {
+  if (process.stdin.isTTY && process.stdin.isRaw) process.stdin.setRawMode(false)
+  if (!onAltScreen) return
+  onAltScreen = false
+  process.stdout.write('\x1b[?25h\x1b[?1049l')
+}
+
+process.on('exit', leaveScreen)
+
+/**
+ * Lit une seule touche. Par défaut, rend ensuite le terminal à son mode normal ;
+ * `keepRaw` le laisse en mode brut, pour qu'une rafale de touches (flèche
+ * maintenue) ne tombe pas entre deux lectures en mode ligne, où elle serait
+ * affichée en écho puis perdue. Un redimensionnement rend `{ name: 'resize' }`.
+ */
+export function readKey(keepRaw = false): Promise<Key> {
   return new Promise((resolve) => {
     emitKeypressEvents(process.stdin)
     process.stdin.setRawMode(true)
     process.stdin.resume()
-    const onKey = (sequence: string | undefined, key: Key | undefined) => {
+    const done = (key: Key) => {
       process.stdin.off('keypress', onKey)
-      process.stdin.setRawMode(false)
-      process.stdin.pause()
-      if (key?.ctrl && key.name === 'c') { process.stdout.write('\n'); process.exit(0) }
-      resolve({ name: key?.name, sequence: sequence ?? key?.sequence ?? '', ctrl: key?.ctrl })
+      process.stdout.off('resize', onResize)
+      if (!keepRaw) {
+        process.stdin.setRawMode(false)
+        process.stdin.pause()
+      }
+      resolve(key)
     }
+    const onKey = (sequence: string | undefined, key: Key | undefined) => {
+      if (key?.ctrl && key.name === 'c') { leaveScreen(); process.stdout.write('\n'); process.exit(0) }
+      done({ name: key?.name, sequence: sequence ?? key?.sequence ?? '', ctrl: key?.ctrl })
+    }
+    const onResize = () => done({ name: 'resize', sequence: '' })
     process.stdin.on('keypress', onKey)
+    process.stdout.on('resize', onResize)
   })
 }
 
@@ -89,46 +130,54 @@ export async function menu(options: MenuOptions): Promise<MenuResult> {
   const { items, keys = [], hint = '', top = '' } = options
   let selected = Math.min(Math.max(0, options.initial ?? 0), Math.max(0, items.length - 1))
   let start = 0
+  enterScreen()
 
-  for (;;) {
-    const columns = process.stdout.columns || 100
-    const topLines = top ? top.split('\n').reduce((n, line) => n + Math.max(1, Math.ceil(displayWidth(stripAnsi(line)) / columns)), 0) : 0
-    const height = Math.max(5, (process.stdout.rows || 30) - topLines - 4)
-    start = viewportStart(selected, items.length, height, start)
+  try {
+    for (;;) {
+      const columns = process.stdout.columns || 100
+      const topLines = top ? top.split('\n').reduce((n, line) => n + Math.max(1, Math.ceil(displayWidth(stripAnsi(line)) / columns)), 0) : 0
+      const height = Math.max(5, (process.stdout.rows || 30) - topLines - 4)
+      start = viewportStart(selected, items.length, height, start)
 
-    const lines: string[] = []
-    if (top) lines.push(top)
-    if (!items.length) lines.push(styleText('yellow', '  ' + (options.empty ?? 'Rien à afficher.')))
-    for (let i = start; i < Math.min(items.length, start + height); i++) {
-      const text = fit(items[i], columns - 3)
-      lines.push(i === selected ? styleText(['inverse', 'bold'], '❯ ' + text) : '  ' + text)
+      const lines: string[] = []
+      if (top) lines.push(top)
+      if (!items.length) lines.push(styleText('yellow', '  ' + (options.empty ?? 'Rien à afficher.')))
+      for (let i = start; i < Math.min(items.length, start + height); i++) {
+        const text = fit(items[i], columns - 3)
+        lines.push(i === selected ? styleText(['inverse', 'bold'], '❯ ' + text) : '  ' + text)
+      }
+      const position = items.length > height ? '  ' + (selected + 1) + '/' + items.length : ''
+      lines.push(styleText('dim', fit('↑↓ naviguer · Entrée ouvrir · Échap retour' + (hint ? ' · ' + hint : '') + position, columns - 1)))
+
+      // Effacement puis rendu en une seule écriture, sur l'écran alternatif.
+      process.stdout.write('\x1b[H\x1b[2J' + lines.join('\n'))
+
+      const key = await readKey(true)
+      const page = Math.max(1, height - 1)
+      switch (key.name) {
+        case 'resize': continue
+        case 'up': selected = selected > 0 ? selected - 1 : Math.max(0, items.length - 1); continue
+        case 'down': selected = selected < items.length - 1 ? selected + 1 : 0; continue
+        case 'pageup': selected = Math.max(0, selected - page); continue
+        case 'pagedown': selected = Math.min(items.length - 1, selected + page); continue
+        case 'home': selected = 0; continue
+        case 'end': selected = Math.max(0, items.length - 1); continue
+        case 'return': case 'enter': case 'right':
+          if (items.length) return { action: 'enter', index: selected }
+          continue
+        case 'escape': case 'left': case 'backspace':
+          return { action: 'back' }
+      }
+      if (keys.includes(key.sequence)) return { action: 'key', key: key.sequence, index: selected }
+      if (key.sequence === 'q') return { action: 'back' }
+      if (key.sequence === 'k') selected = Math.max(0, selected - 1)
+      if (key.sequence === 'j') selected = Math.min(items.length - 1, selected + 1)
     }
-    const position = items.length > height ? '  ' + (selected + 1) + '/' + items.length : ''
-    lines.push(styleText('dim', fit('↑↓ naviguer · Entrée ouvrir · Échap retour' + (hint ? ' · ' + hint : '') + position, columns - 1)))
-
-    console.clear()
-    process.stdout.write(lines.join('\n'))
-
-    const key = await readKey()
-    const page = Math.max(1, height - 1)
-    switch (key.name) {
-      case 'up': selected = selected > 0 ? selected - 1 : Math.max(0, items.length - 1); continue
-      case 'down': selected = selected < items.length - 1 ? selected + 1 : 0; continue
-      case 'pageup': selected = Math.max(0, selected - page); continue
-      case 'pagedown': selected = Math.min(items.length - 1, selected + page); continue
-      case 'home': selected = 0; continue
-      case 'end': selected = Math.max(0, items.length - 1); continue
-      case 'return': case 'enter': case 'right':
-        if (items.length) { console.clear(); return { action: 'enter', index: selected } }
-        continue
-      case 'escape': case 'left': case 'backspace':
-        console.clear()
-        return { action: 'back' }
-    }
-    if (keys.includes(key.sequence)) { console.clear(); return { action: 'key', key: key.sequence, index: selected } }
-    if (key.sequence === 'q') { console.clear(); return { action: 'back' } }
-    if (key.sequence === 'k') selected = Math.max(0, selected - 1)
-    if (key.sequence === 'j') selected = Math.min(items.length - 1, selected + 1)
+  } finally {
+    // L'écran alternatif reste en place pour le menu suivant ; seul le clavier
+    // redevient normal. Qui affiche du texte ou pose une question appelle leaveScreen().
+    if (process.stdin.isRaw) process.stdin.setRawMode(false)
+    process.stdin.pause()
   }
 }
 
