@@ -15,10 +15,13 @@
  * interdits que la tâche planifiée.
  */
 import { spawn, spawnSync, execFile } from 'node:child_process'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createInterface } from 'node:readline/promises'
 import { styleText } from 'node:util'
-import { readCollection, readConfig, ROOT } from './lib/store.ts'
+import { readCollection, readConfig, readHistory, ROOT } from './lib/store.ts'
+import { orphanSendings, type HistoryEvent } from './lib/outreach.ts'
 import { describePlace } from './lib/locations.ts'
 import type { LocationsConfig } from './lib/scoring.ts'
 import { filterOpportunities, SORT_KEYS, type ListCriteria } from './lib/query.ts'
@@ -230,11 +233,43 @@ async function messagesScreen(): Promise<void> {
   }
 }
 
+/**
+ * Ouvre l'objet et le corps dans le Bloc-notes (ou $EDITOR), puis passe le
+ * résultat à outreach:edit, qui valide et annule une éventuelle approbation.
+ */
+async function editMessage(m: OutreachMessage): Promise<void> {
+  leaveScreen()
+  const dir = mkdtempSync(join(tmpdir(), 'nbeny-sales-'))
+  const txt = join(dir, m.id + '.txt')
+  const json = join(dir, m.id + '.json')
+  try {
+    writeFileSync(txt, 'Objet : ' + m.subject + '\n\n' + m.body + '\n', 'utf8')
+    console.log(dim('Modifie le texte, enregistre, puis ferme l\'éditeur. Garde la première ligne « Objet : … » et la ligne vide qui suit.'))
+    spawnSync(process.env.EDITOR || (process.platform === 'win32' ? 'notepad.exe' : 'vi'), [txt], { stdio: 'inherit' })
+    const text = readFileSync(txt, 'utf8').replace(/^﻿/, '').replace(/\r\n/g, '\n')
+    const parts = text.match(/^Objet : (.*)\n\n([\s\S]*)$/)
+    if (!parts) { console.log(yellow('Format non reconnu (première ligne « Objet : … » puis une ligne vide) : rien n\'est modifié.')); await pressAnyKey(); return }
+    const subject = parts[1].trim()
+    const body = parts[2].replace(/\s+$/, '')
+    if (subject === m.subject && body === m.body) { console.log('Aucun changement.'); await pressAnyKey(); return }
+    writeFileSync(json, JSON.stringify({ subject, body }), 'utf8')
+    await runAndShow('outreach:edit', m.id, '--file', json)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
 async function messageDetail(id: string): Promise<void> {
   for (;;) {
     const m = readCollection<OutreachMessage>('outreach').find((r) => r.id === id)
     if (!m) return
+    const interrupted = orphanSendings(readHistory() as HistoryEvent[]).includes(id)
     const actions = [
+      ...(interrupted ? [
+        ['mark-sent', '⚠️  Envoi interrompu : il EST parti (vérifié dans la copie cachée) → marquer envoyé'],
+        ['clear-sending', '⚠️  Envoi interrompu : il n\'est PAS parti (vérifié) → autoriser un nouvel envoi'],
+      ] : []),
+      ['edit', '✏️  Modifier l\'objet et le texte (annule l\'approbation)'],
       ['recipient', '📇 Définir le destinataire (email lu sur une page publique)'],
       ['approve', '✅ Approuver (confirmation au clavier)'],
       ['dry', '🧪 Simuler l\'envoi (--dry-run)'],
@@ -246,6 +281,9 @@ async function messageDetail(id: string): Promise<void> {
 
     switch (actions[r.index][0]) {
       case 'source': openInBrowser(m.sourceUrl); break
+      case 'edit': if (m.status === 'SENT') { leaveScreen(); console.log(yellow(m.id + ' est déjà envoyé : il ne se modifie plus.')); await pressAnyKey() } else await editMessage(m); break
+      case 'mark-sent': await runAndShow('outreach:mark-sent', id); break
+      case 'clear-sending': await runAndShow('outreach:clear-sending', id); break
       case 'approve': await runAndShow('outreach:approve', id); break
       case 'dry': await runAndShow('outreach:send', id, '--dry-run'); break
       case 'recipient': {
@@ -403,7 +441,7 @@ async function placeDetail(key: string): Promise<void> {
  */
 const AGENT_COMMANDS = ['/sales', '/jobs', '/freelance', '/cdi', '/prospect', '/report', '/marketing', '/seo', 'libre'] as const
 const AGENT_LABELS: Record<string, string> = {
-  '/sales': '/sales       Semaine complète (7 j) : Lille, Paris, Pas-de-Calais + remote, scoring, brouillons, relances',
+  '/sales': '/sales       Semaine complète (7 j) : Lille, Paris, Pas-de-Calais + remote France et monde, scoring, brouillons, relances',
   '/jobs': '/jobs        Offres publiées, tous contrats',
   '/freelance': '/freelance   Missions freelance',
   '/cdi': '/cdi         CDI, y compris sous des intitulés inattendus',

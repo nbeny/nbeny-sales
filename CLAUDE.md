@@ -52,8 +52,9 @@ Application interactive pour Nicolas : `sales.cmd` ou `node src/cli.ts` sans arg
 (menus au clavier ; elle lit la base et relance la CLI pour chaque action). Les
 agents ne la lancent pas : ils appellent les commandes directement.
 
-`/sales` couvre les **7 derniers jours** sur Lille, Paris, tout le Pas-de-Calais
-et le remote. Les zones et leurs villes viennent de `config/locations.json`, que
+`/sales` couvre les **7 derniers jours** sur Lille, Paris, tout le Pas-de-Calais,
+le remote France et le **full remote international** (monde entier, fuseau,
+éligibilité et contrat relevés sur l'offre). Les zones et leurs villes viennent de `config/locations.json`, que
 Nicolas règle dans l'app (menu Lieux) ou via `location:set|add|home`. Ces
 commandes lui sont réservées : les agents lisent les lieux (`location:list`), ne
 les modifient pas, et la tâche planifiée les interdit.
