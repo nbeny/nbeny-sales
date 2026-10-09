@@ -64,7 +64,7 @@ function positional(index: number): string | undefined {
   return args.slice(1).filter((a) => !a.startsWith('--') && !isFlagValue(a))[index]
 }
 
-const FLAGS_WITH_VALUE = ['file', 'json', 'days', 'priority', 'stage', 'contract', 'note', 'floor', 'target', 'source', 'decision', 'currency', 'unit', 'limit', 'min-score', 'min-coverage', 'remote', 'location', 'email', 'name', 'sort', 'search', 'travel', 'max-onsite', 'onsite-accepted', 'add-label', 'remove-label', 'labels', 'market', 'city', 'postal-code', 'country']
+const FLAGS_WITH_VALUE = ['file', 'json', 'days', 'priority', 'stage', 'contract', 'note', 'floor', 'target', 'source', 'decision', 'currency', 'unit', 'limit', 'min-score', 'min-coverage', 'remote', 'location', 'email', 'name', 'sort', 'search', 'travel', 'max-onsite', 'onsite-accepted', 'add-label', 'remove-label', 'labels', 'market', 'city', 'postal-code', 'country', 'reason']
 function isFlagValue(token: string): boolean {
   const i = args.indexOf(token)
   return i > 0 && args[i - 1].startsWith('--') && FLAGS_WITH_VALUE.includes(args[i - 1].slice(2))
@@ -311,6 +311,41 @@ function opportunityEnrich(): void {
 
   console.log(
     id + ' enrichie (' + (added.join(', ') || 'aucun fait') + ') — ' +
+    before.score + '/100 (' + before.coverage + '/8, ' + before.priority + ')' +
+    '  ->  ' + opp.match.score + '/100 (' + opp.match.coverage + '/8, ' + opp.match.priority + ')',
+  )
+  for (const w of opp.match.weaknesses) console.log('  ⚠️  ' + w)
+}
+
+/**
+ * Retire un fait qui n'aurait pas dû entrer (valeur non lue sur la source).
+ * La raison est obligatoire, et la valeur retirée reste dans le journal : la
+ * correction se voit, elle n'efface pas la trace de l'erreur.
+ */
+function opportunityRemoveFact(): void {
+  const id = positional(0)
+  const field = positional(1)
+  const reason = flag('reason')?.trim()
+  if (!id || !field || !reason) { console.error('Usage : opportunity:remove-fact <id> <champ> --reason "pourquoi ce fait est faux"'); process.exit(1) }
+
+  const rows = readCollection<Opportunity>('opportunities')
+  const opp = rows.find((o) => o.id === id)
+  if (!opp) { console.error('Opportunité introuvable : ' + id); process.exit(1) }
+  const facts = opp.facts as Record<string, unknown>
+  if (!(field in facts)) {
+    console.error('Aucun fait « ' + field + ' » sur ' + id + '. Faits présents : ' + (Object.keys(facts).join(', ') || 'aucun') + '.')
+    process.exit(2)
+  }
+
+  const removed = facts[field]
+  delete facts[field]
+  const before = { score: opp.match?.score ?? 0, coverage: opp.match?.coverage ?? 0, priority: opp.match?.priority ?? 'LOW' }
+  opp.match = computeMatch(opp, scoringContext())
+  writeCollection('opportunities', rows)
+  appendHistory({ event: 'opportunity:remove-fact', id, field, removed, reason, from: before, to: { score: opp.match.score, coverage: opp.match.coverage, priority: opp.match.priority } })
+
+  console.log(
+    id + ' : fait « ' + field + ' » retiré — ' +
     before.score + '/100 (' + before.coverage + '/8, ' + before.priority + ')' +
     '  ->  ' + opp.match.score + '/100 (' + opp.match.coverage + '/8, ' + opp.match.priority + ')',
   )
@@ -1068,6 +1103,8 @@ Opportunités
   opportunity:show <id> [--pretty]    JSON, ou fiche lisible avec --pretty
   opportunity:enrich <id> --file <json>   Ajoute des faits lus sur la source, re-score
                                       (--overwrite pour corriger un fait déjà posé)
+  opportunity:remove-fact <id> <champ> --reason "..."
+                                      Retire un fait non lu sur la source, re-score
   opportunity:stage <id> <STAGE> [--note "..."]
   match:all [<id>]                    Re-score tout (ou une seule opportunité)
 
@@ -1118,6 +1155,7 @@ const COMMANDS: Record<string, () => void | Promise<void>> = {
   'opportunity:list': opportunityList,
   'opportunity:show': opportunityShow,
   'opportunity:enrich': opportunityEnrich,
+  'opportunity:remove-fact': opportunityRemoveFact,
   'opportunity:stage': opportunityStage,
   'match:all': matchAll,
   'match:one': matchAll,

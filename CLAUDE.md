@@ -36,6 +36,7 @@ node src/cli.ts help                       # toutes les commandes
 node src/cli.ts opportunity:add --file x.json
 node src/cli.ts opportunity:list --priority HIGH --remote full --sort remote
 node src/cli.ts match:all
+node src/cli.ts opportunity:remove-fact OPP-x seniorityYears --reason "..."   # fait non lu
 node src/cli.ts report:daily --days 7
 node src/cli.ts location:list lille paris pas-de-calais   # zones et villes reconnues
 node src/cli.ts location:set lille --travel 100 --max-onsite 3   # Nicolas seul
@@ -45,7 +46,7 @@ node src/cli.ts outreach:edit MSG-x --file x.json    # corrige, annule l'approba
 node src/cli.ts outreach:approve MSG-x        # Nicolas, au clavier
 node src/cli.ts outreach:clear-sending MSG-x  # Nicolas, au clavier
 node src/cli.ts outreach:send MSG-x --dry-run # puis sans --dry-run
-node --test "test/*.test.ts"               # 232 tests, sans dépendance
+node --test "test/*.test.ts"               # 235 tests, sans dépendance
 ```
 
 Application interactive pour Nicolas : `sales.cmd` ou `node src/cli.ts` sans argument
